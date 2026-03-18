@@ -6,6 +6,10 @@ export function GetSessions() {
   return window['go']['main']['App']['GetSessions']();
 }
 
+export function OpenSession(arg1, arg2) {
+  return window['go']['main']['App']['OpenSession'](arg1, arg2);
+}
+
 export function ToggleWindow() {
   return window['go']['main']['App']['ToggleWindow']();
 }

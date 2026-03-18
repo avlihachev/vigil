@@ -8,6 +8,7 @@ import (
 
 	"claude-sessions-monitor/monitor"
 	"claude-sessions-monitor/switcher"
+	"claude-sessions-monitor/tray"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -31,10 +32,12 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	go a.pollLoop()
+	tray.Init("◉", "Claude Sessions Monitor", a.ToggleWindow)
 }
 
 func (a *App) shutdown(ctx context.Context) {
 	close(a.stop)
+	tray.Remove()
 }
 
 func (a *App) pollLoop() {
