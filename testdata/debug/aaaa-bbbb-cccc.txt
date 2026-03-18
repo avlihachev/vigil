@@ -1,0 +1,5 @@
+2026-03-18T10:00:01.000Z [DEBUG] Stream started - received first chunk
+2026-03-18T10:00:02.000Z [DEBUG] executePreToolHooks called for tool: Read
+2026-03-18T10:00:02.500Z [DEBUG] executePreToolHooks called for tool: Edit
+2026-03-18T10:00:03.000Z [DEBUG] executePreToolHooks called for tool: Bash
+2026-03-18T10:00:04.000Z [DEBUG] executePreToolHooks called for tool: Grep
