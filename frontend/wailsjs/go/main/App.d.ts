@@ -4,6 +4,10 @@ import {monitor} from '../models';
 
 export function GetSessions():Promise<Array<monitor.Session>>;
 
+export function HideWindow():Promise<void>;
+
 export function OpenSession(arg1:string,arg2:string):Promise<void>;
+
+export function ShowWindow():Promise<void>;
 
 export function ToggleWindow():Promise<void>;

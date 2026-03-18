@@ -33,6 +33,11 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	go a.pollLoop()
 	tray.Init("◉", "Claude Sessions Monitor", a.ToggleWindow)
+
+	// hide window when it loses focus
+	runtime.EventsOn(a.ctx, "window:blur", func(optionalData ...interface{}) {
+		a.HideWindow()
+	})
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -70,10 +75,26 @@ func (a *App) OpenSession(source string, cwd string) {
 
 func (a *App) ToggleWindow() {
 	if a.visible {
-		runtime.WindowHide(a.ctx)
-		a.visible = false
+		a.HideWindow()
 	} else {
-		runtime.WindowShow(a.ctx)
-		a.visible = true
+		a.ShowWindow()
 	}
+}
+
+func (a *App) ShowWindow() {
+	// position near top-right of screen (menubar area)
+	screens, _ := runtime.ScreenGetAll(a.ctx)
+	if len(screens) > 0 {
+		primary := screens[0]
+		x := primary.Size.Width - 340
+		y := 30
+		runtime.WindowSetPosition(a.ctx, x, y)
+	}
+	runtime.WindowShow(a.ctx)
+	a.visible = true
+}
+
+func (a *App) HideWindow() {
+	runtime.WindowHide(a.ctx)
+	a.visible = false
 }

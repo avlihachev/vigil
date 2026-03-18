@@ -1,50 +1,62 @@
 #import <Cocoa/Cocoa.h>
+#include <stdio.h>
 
 extern void trayOnClick(void);
 
 static NSStatusItem *statusItem = nil;
-static NSMenu *contextMenu = nil;
 
-@interface TrayClickTarget : NSObject
-- (void)clicked:(id)sender;
+@interface TrayDelegate : NSObject
+- (void)statusItemClicked:(id)sender;
+- (void)quitApp:(id)sender;
 @end
 
-@implementation TrayClickTarget
-- (void)clicked:(id)sender {
-    NSEvent *event = [NSApp currentEvent];
-    if (event.type == NSEventTypeRightMouseUp) {
-        [statusItem setMenu:contextMenu];
-        [statusItem.button performClick:nil];
-        [statusItem setMenu:nil];
-    } else {
-        trayOnClick();
-    }
+@implementation TrayDelegate
+- (void)statusItemClicked:(id)sender {
+    trayOnClick();
+}
+- (void)quitApp:(id)sender {
+    [NSApp terminate:nil];
 }
 @end
 
-static TrayClickTarget *clickTarget = nil;
+static TrayDelegate *delegate = nil;
 
 void tray_init(const char* title, const char* tooltip) {
-    dispatch_async(dispatch_get_main_queue(), ^{
+    NSString *titleStr = [NSString stringWithUTF8String:title];
+    NSString *tooltipStr = [NSString stringWithUTF8String:tooltip];
+
+    // slight delay to let Wails finish NSApp setup
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        // hide dock icon
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+
+        delegate = [[TrayDelegate alloc] init];
+
         statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
-        statusItem.button.title = [NSString stringWithUTF8String:title];
-        statusItem.button.toolTip = [NSString stringWithUTF8String:tooltip];
+        [statusItem retain];
+        statusItem.button.title = titleStr;
+        statusItem.button.toolTip = tooltipStr;
+        [statusItem.button setTarget:delegate];
+        [statusItem.button setAction:@selector(statusItemClicked:)];
+        [statusItem.button sendActionOn:NSEventMaskLeftMouseUp];
 
-        clickTarget = [[TrayClickTarget alloc] init];
-        [statusItem.button setTarget:clickTarget];
-        [statusItem.button setAction:@selector(clicked:)];
-        [statusItem.button sendActionOn:(NSEventMaskLeftMouseUp | NSEventMaskRightMouseUp)];
+        NSMenu *menu = [[NSMenu alloc] init];
+        NSMenuItem *showItem = [[NSMenuItem alloc] initWithTitle:@"Show / Hide"
+                                                           action:@selector(statusItemClicked:)
+                                                    keyEquivalent:@""];
+        [showItem setTarget:delegate];
+        [menu addItem:showItem];
+        [menu addItem:[NSMenuItem separatorItem]];
+        NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"Quit"
+                                                           action:@selector(quitApp:)
+                                                    keyEquivalent:@"q"];
+        [quitItem setTarget:delegate];
+        [menu addItem:quitItem];
 
-        contextMenu = [[NSMenu alloc] init];
-        NSMenuItem *showItem = [contextMenu addItemWithTitle:@"Show / Hide"
-                                                      action:@selector(clicked:)
-                                               keyEquivalent:@""];
-        [showItem setTarget:clickTarget];
-        [contextMenu addItem:[NSMenuItem separatorItem]];
-        NSMenuItem *quitItem = [contextMenu addItemWithTitle:@"Quit"
-                                                      action:@selector(terminate:)
-                                               keyEquivalent:@"q"];
-        [quitItem setTarget:[NSApplication sharedApplication]];
+        // right-click shows menu, left-click calls action
+        statusItem.menu = nil;
+
+        fprintf(stderr, "[tray] status item created: %s\n", [titleStr UTF8String]);
     });
 }
 
@@ -61,6 +73,7 @@ void tray_remove(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (statusItem != nil) {
             [[NSStatusBar systemStatusBar] removeStatusItem:statusItem];
+            [statusItem release];
             statusItem = nil;
         }
     });
