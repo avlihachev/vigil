@@ -1,3 +1,16 @@
+# build output
 build/bin
+dist/
+
+# generated icon intermediates
+iconset.iconset/
+
+# frontend
 node_modules
 frontend/dist
+
+# macOS
+.DS_Store
+
+# local Claude Code project settings
+.claude/

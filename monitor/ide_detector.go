@@ -8,24 +8,26 @@ import (
 )
 
 type IDEDetector struct {
-	baseDir  string
-	pidToIDE map[int]string
+	baseDir string
+	// maps workspace folder path → IDE name
+	cwdToIDE map[string]string
 }
 
 type rawIDELock struct {
-	PID     int    `json:"pid"`
-	IDEName string `json:"ideName"`
+	PID              int      `json:"pid"`
+	IDEName          string   `json:"ideName"`
+	WorkspaceFolders []string `json:"workspaceFolders"`
 }
 
 func NewIDEDetector(baseDir string) *IDEDetector {
 	return &IDEDetector{
 		baseDir:  baseDir,
-		pidToIDE: make(map[int]string),
+		cwdToIDE: make(map[string]string),
 	}
 }
 
 func (d *IDEDetector) Load() error {
-	d.pidToIDE = make(map[int]string)
+	d.cwdToIDE = make(map[string]string)
 	pattern := filepath.Join(d.baseDir, "ide", "*.lock")
 	files, _ := filepath.Glob(pattern)
 
@@ -39,16 +41,26 @@ func (d *IDEDetector) Load() error {
 			continue
 		}
 		name := normalizeIDEName(raw.IDEName)
-		if raw.PID != 0 && name != "" {
-			d.pidToIDE[raw.PID] = name
+		if name == "" {
+			continue
+		}
+		for _, folder := range raw.WorkspaceFolders {
+			d.cwdToIDE[folder] = name
 		}
 	}
 	return nil
 }
 
-func (d *IDEDetector) GetSource(pid int) string {
-	if name, ok := d.pidToIDE[pid]; ok {
+// GetSource matches session CWD against workspace folders
+func (d *IDEDetector) GetSource(cwd string) string {
+	if name, ok := d.cwdToIDE[cwd]; ok {
 		return name
+	}
+	// check if cwd is a subdirectory of a workspace folder
+	for folder, name := range d.cwdToIDE {
+		if strings.HasPrefix(cwd, folder+"/") {
+			return name
+		}
 	}
 	return "Terminal"
 }

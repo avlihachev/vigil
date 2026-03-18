@@ -9,7 +9,8 @@ const (
 	ActionRead    ActionType = "read"
 	ActionBash    ActionType = "bash"
 	ActionSearch  ActionType = "search"
-	ActionWaiting ActionType = "waiting"
+	ActionWaiting ActionType = "waiting" // finished, waiting for user
+	ActionConfirm ActionType = "confirm" // waiting for tool approval
 )
 
 type Action struct {
@@ -22,9 +23,10 @@ type Action struct {
 type SessionStatus string
 
 const (
-	StatusActive  SessionStatus = "active"
-	StatusWaiting SessionStatus = "waiting"
-	StatusIdle    SessionStatus = "idle"
+	StatusActive       SessionStatus = "active"
+	StatusWaiting      SessionStatus = "waiting"       // finished, waiting for user message
+	StatusConfirm      SessionStatus = "confirm"        // waiting for tool approval
+	StatusIdle         SessionStatus = "idle"
 )
 
 type Session struct {
@@ -34,9 +36,25 @@ type Session struct {
 	StartedAt     int64         `json:"startedAt"`
 	Source        string        `json:"source"`
 	ProjectName   string        `json:"projectName"`
+	Name          string        `json:"name"`
 	Status        SessionStatus `json:"status"`
 	Duration      string        `json:"duration"`
+	TokensIn      string        `json:"tokensIn"`
+	TokensOut     string        `json:"tokensOut"`
 	RecentActions []Action      `json:"recentActions"`
+}
+
+func FormatTokens(n int64) string {
+	switch {
+	case n == 0:
+		return ""
+	case n < 1000:
+		return fmt.Sprintf("%d", n)
+	case n < 1_000_000:
+		return fmt.Sprintf("%dk", n/1000)
+	default:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	}
 }
 
 func FormatDuration(ms int64) string {

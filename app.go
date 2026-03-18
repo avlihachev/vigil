@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"claude-sessions-monitor/monitor"
-	"claude-sessions-monitor/switcher"
-	"claude-sessions-monitor/tray"
+	"vigil/monitor"
+	"vigil/switcher"
+	"vigil/tray"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -32,7 +32,9 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	go a.pollLoop()
-	tray.Init("◉", "Claude Sessions Monitor", a.ToggleWindow)
+	tray.Init("◉", "Vigil", a.ToggleWindow, func() {
+		runtime.Quit(a.ctx)
+	})
 
 	// hide window when it loses focus
 	runtime.EventsOn(a.ctx, "window:blur", func(optionalData ...interface{}) {
@@ -70,6 +72,7 @@ func (a *App) GetSessions() []monitor.Session {
 }
 
 func (a *App) OpenSession(source string, cwd string) {
+	a.HideWindow() // hide popup before switching so it doesn't block focus
 	switcher.ActivateSession(source, cwd)
 }
 
@@ -90,11 +93,15 @@ func (a *App) ShowWindow() {
 		y := 30
 		runtime.WindowSetPosition(a.ctx, x, y)
 	}
-	runtime.WindowShow(a.ctx)
+	// orderFront: shows window without activating our app,
+	// so the user's previous app (e.g. Ghostty) keeps focus
+	tray.ShowPopup()
 	a.visible = true
 }
 
 func (a *App) HideWindow() {
-	runtime.WindowHide(a.ctx)
+	// orderOut: hides window without triggering app-deactivation,
+	// so macOS doesn't switch focus back to our app's "previous" app
+	tray.HidePopup()
 	a.visible = false
 }

@@ -8,7 +8,7 @@
         <key>CFBundleExecutable</key>
         <string>{{.OutputFilename}}</string>
         <key>CFBundleIdentifier</key>
-        <string>com.wails.{{.Name}}</string>
+        <string>com.vigil.app</string>
         <key>CFBundleVersion</key>
         <string>{{.Info.ProductVersion}}</string>
         <key>CFBundleGetInfoString</key>
@@ -21,6 +21,10 @@
         <string>10.13.0</string>
         <key>NSHighResolutionCapable</key>
         <string>true</string>
+        <key>NSAppleEventsUsageDescription</key>
+        <string>Vigil uses AppleScript to switch to the correct app window when you click a session.</string>
+        <key>NSAccessibilityUsageDescription</key>
+        <string>Vigil uses Accessibility to bring specific windows to the foreground.</string>
         <key>LSUIElement</key>
         <true/>
         <key>NSHumanReadableCopyright</key>

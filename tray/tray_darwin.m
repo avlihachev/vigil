@@ -2,20 +2,35 @@
 #include <stdio.h>
 
 extern void trayOnClick(void);
+extern void trayOnQuit(void);
 
 static NSStatusItem *statusItem = nil;
 
-@interface TrayDelegate : NSObject
+@interface TrayDelegate : NSObject {
+    NSMenu *_contextMenu;
+}
 - (void)statusItemClicked:(id)sender;
 - (void)quitApp:(id)sender;
+- (void)setContextMenu:(NSMenu *)menu;
 @end
 
 @implementation TrayDelegate
+- (void)setContextMenu:(NSMenu *)menu {
+    _contextMenu = menu;
+}
 - (void)statusItemClicked:(id)sender {
-    trayOnClick();
+    NSEvent *event = [NSApp currentEvent];
+    BOOL isRight = (event.type == NSEventTypeRightMouseUp) ||
+                   (event.modifierFlags & NSEventModifierFlagControl);
+    if (isRight && _contextMenu) {
+        NSPoint loc = NSMakePoint(0, statusItem.button.bounds.size.height + 4);
+        [_contextMenu popUpMenuPositioningItem:nil atLocation:loc inView:statusItem.button];
+    } else {
+        trayOnClick();
+    }
 }
 - (void)quitApp:(id)sender {
-    [NSApp terminate:nil];
+    trayOnQuit();
 }
 @end
 
@@ -53,7 +68,10 @@ void tray_init(const char* title, const char* tooltip) {
         [quitItem setTarget:delegate];
         [menu addItem:quitItem];
 
-        // right-click shows menu, left-click calls action
+        // left click → toggle popup; right/ctrl click → context menu with Quit
+        [delegate setContextMenu:menu];
+        [statusItem.button setAction:@selector(statusItemClicked:)];
+        [statusItem.button sendActionOn:NSEventMaskLeftMouseUp | NSEventMaskRightMouseUp];
         statusItem.menu = nil;
 
         fprintf(stderr, "[tray] status item created: %s\n", [titleStr UTF8String]);
@@ -75,6 +93,28 @@ void tray_remove(void) {
             [[NSStatusBar systemStatusBar] removeStatusItem:statusItem];
             [statusItem release];
             statusItem = nil;
+        }
+    });
+}
+
+// show popup: activate app so first click works, float above other windows
+void tray_show_popup(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        for (NSWindow *win in [NSApp windows]) {
+            [win setLevel:NSFloatingWindowLevel];
+            [NSApp activateIgnoringOtherApps:YES];
+            [win makeKeyAndOrderFront:nil];
+            break;
+        }
+    });
+}
+
+// hide popup via orderOut (not [NSApp hide:]) so macOS doesn't auto-switch to Ghostty
+void tray_hide_popup(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        for (NSWindow *win in [NSApp windows]) {
+            [win orderOut:nil];
+            break;
         }
     });
 }

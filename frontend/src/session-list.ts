@@ -4,7 +4,7 @@ import type { Session } from './types';
 import './session-card';
 import './status-bar';
 
-const STATUS_ORDER: Record<string, number> = { active: 0, waiting: 1, idle: 2 };
+const STATUS_ORDER: Record<string, number> = { confirm: 0, active: 1, waiting: 2, idle: 3 };
 
 @customElement('session-list')
 export class SessionList extends LitElement {

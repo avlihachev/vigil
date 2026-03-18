@@ -1,4 +1,4 @@
-export type ActionType = 'edit' | 'read' | 'bash' | 'search' | 'waiting';
+export type ActionType = 'edit' | 'read' | 'bash' | 'search' | 'waiting' | 'confirm';
 
 export interface Action {
   type: ActionType;
@@ -7,7 +7,7 @@ export interface Action {
   timestamp: number;
 }
 
-export type SessionStatus = 'active' | 'waiting' | 'idle';
+export type SessionStatus = 'active' | 'waiting' | 'confirm' | 'idle';
 
 export interface Session {
   pid: number;
@@ -16,7 +16,10 @@ export interface Session {
   startedAt: number;
   source: string;
   projectName: string;
+  name: string;
   status: SessionStatus;
   duration: string;
+  tokensIn: string;
+  tokensOut: string;
   recentActions: Action[];
 }

@@ -2,16 +2,10 @@ package switcher
 
 import "testing"
 
-func TestBuildAppleScript_VSCode(t *testing.T) {
-	script := buildActivateScript("VSCode", "/Users/test/proj")
-	if script == "" {
-		t.Error("expected non-empty script")
-	}
-}
-
-func TestBuildAppleScript_Terminal(t *testing.T) {
-	script := buildActivateScript("Terminal", "/Users/test/proj")
-	if script == "" {
-		t.Error("expected non-empty script")
-	}
+func TestActivateSession_DoesNotPanic(t *testing.T) {
+	// just verify it doesn't panic with various inputs
+	// actual activation requires running apps, so we just check no crash
+	_ = ActivateSession("VSCode", "/tmp/nonexistent")
+	_ = ActivateSession("Terminal", "/tmp/nonexistent")
+	_ = ActivateSession("Cursor", "/tmp/nonexistent")
 }

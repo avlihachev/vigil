@@ -1,19 +1,76 @@
-# README
+# Vigil
 
-## About
+A macOS menubar app that monitors your active [Claude Code](https://claude.ai/code) sessions and lets you jump to them instantly.
 
-This is the official Wails Lit template.
+![Vigil popup showing active sessions](docs/screenshot.png)
 
-You can configure the project by editing `wails.json`. More information about the project settings can be found
-here: https://wails.io/docs/reference/project-config
+## What it does
 
-## Live Development
+Vigil sits in your menubar and polls Claude Code's local data files every 3 seconds. Click the tray icon to see all running sessions — their status, current task, token usage, and which editor or terminal they're in. Click a session to bring that window to front.
 
-To run in live development mode, run `wails dev` in the project directory. This will run a Vite development
-server that will provide very fast hot reload of your frontend changes. If you want to develop in a browser
-and have access to your Go methods, there is also a dev server that runs on http://localhost:34115. Connect
-to this in your browser, and you can call your Go code from devtools.
+**Session statuses:**
+- 🟢 **Active** — Claude is currently executing tools
+- 🟡 **Waiting** — waiting for your input
+- 🟠 **Confirm** — needs permission to proceed
+- ⚫ **Idle** — no activity for 5+ minutes
 
-## Building
+## Requirements
 
-To build a redistributable, production mode package, use `wails build`.
+- macOS 12 Monterey or later (Apple Silicon or Intel)
+- [Claude Code](https://claude.ai/code) installed and running sessions
+
+## Install
+
+Download the latest `Vigil.dmg` from [Releases](../../releases), open it, and drag Vigil to Applications.
+
+On first launch, grant **Accessibility** access when prompted (`System Settings → Privacy & Security → Accessibility`). This is required to raise terminal/editor windows on click.
+
+## Build from source
+
+**Prerequisites:** Go 1.23+, Node.js 18+, [Wails v2](https://wails.io)
+
+```bash
+# install Wails CLI
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+# dev mode with hot-reload
+wails dev
+
+# production build
+wails build -platform darwin/universal -clean
+
+# build distributable DMG
+bash scripts/build-dmg.sh   # → dist/Vigil.dmg
+
+# regenerate app icon
+python3 -m venv /tmp/v && /tmp/v/bin/pip install Pillow -q
+/tmp/v/bin/python3 scripts/gen_icon.py
+
+# run tests
+go test ./monitor/... ./switcher/...
+```
+
+## How it works
+
+```
+~/.claude/sessions/*.json          → Scanner        → live PIDs + working dirs
+~/.claude/ide/*.lock               → IDEDetector    → VSCode / Cursor workspace mapping
+~/.claude/projects/**/*.jsonl      → ActivityParser → actions, tokens, session name, status
+```
+
+`monitor.Manager.Collect()` merges these three sources into `[]Session`, which is pushed to the Lit/TypeScript frontend via a Wails event every 3 seconds.
+
+Clicking a session calls `switcher.ActivateSession`, which uses AppleScript + Accessibility APIs to raise the correct window in the right editor or terminal.
+
+### Package layout
+
+| Package | Purpose |
+|---------|---------|
+| `monitor/` | Data collection. `Manager` composes Scanner + IDEDetector + ActivityParser. |
+| `switcher/` | AppleScript/Accessibility to raise IDE/terminal windows on click. |
+| `tray/` | Native macOS status bar item via Objective-C + CGo. |
+| `frontend/src/` | Lit web components: `session-list`, `session-card`, `status-bar`. |
+
+## License
+
+MIT — see [LICENSE](LICENSE).

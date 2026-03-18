@@ -16,7 +16,7 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:            "Claude Sessions Monitor",
+		Title:            "Vigil",
 		Width:            320,
 		Height:           400,
 		Frameless:        true,

@@ -11,19 +11,20 @@ import (
 func TestManager_CollectSessions(t *testing.T) {
 	dir := t.TempDir()
 	sessDir := filepath.Join(dir, "sessions")
-	debugDir := filepath.Join(dir, "debug")
 	ideDir := filepath.Join(dir, "ide")
 	os.MkdirAll(sessDir, 0755)
-	os.MkdirAll(debugDir, 0755)
 	os.MkdirAll(ideDir, 0755)
 
 	pid := os.Getpid()
 	sessJSON := fmt.Sprintf(`{"pid":%d,"sessionId":"test-sess","cwd":"/tmp/myproject","startedAt":%d}`, pid, time.Now().UnixMilli()-60000)
 	os.WriteFile(filepath.Join(sessDir, fmt.Sprintf("%d.json", pid)), []byte(sessJSON), 0644)
 
+	// create JSONL in projects dir (new format)
+	projDir := filepath.Join(dir, "projects", "-tmp-myproject")
+	os.MkdirAll(projDir, 0755)
 	now := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-	debugLog := fmt.Sprintf("%s [DEBUG] executePreToolHooks called for tool: Edit\n", now)
-	os.WriteFile(filepath.Join(debugDir, "test-sess.txt"), []byte(debugLog), 0644)
+	jsonl := fmt.Sprintf(`{"type":"assistant","timestamp":"%s","sessionId":"test-sess","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","id":"t1","input":{}}]}}`, now)
+	os.WriteFile(filepath.Join(projDir, "test-sess.jsonl"), []byte(jsonl+"\n"), 0644)
 
 	mgr := NewManager(dir)
 	sessions := mgr.Collect()
@@ -53,8 +54,6 @@ func TestManager_FilterDeadPIDs(t *testing.T) {
 	dir := t.TempDir()
 	sessDir := filepath.Join(dir, "sessions")
 	os.MkdirAll(sessDir, 0755)
-	os.MkdirAll(filepath.Join(dir, "debug"), 0755)
-	os.MkdirAll(filepath.Join(dir, "ide"), 0755)
 
 	os.WriteFile(
 		filepath.Join(sessDir, "9999999.json"),

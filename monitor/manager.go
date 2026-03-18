@@ -29,10 +29,18 @@ func (m *Manager) Collect() []Session {
 		if !IsProcessAlive(s.PID) {
 			continue
 		}
-		s.Source = m.ide.GetSource(s.PID)
-		actions, _ := m.activity.Parse(s.SessionID)
+		s.Source = m.ide.GetSource(s.CWD)
+		if s.Source == "Terminal" {
+			s.Source = terminalForPID(s.PID)
+		}
+		actions, _ := m.activity.Parse(s.SessionID, s.CWD)
 		s.RecentActions = actions
-		s.Status = DetermineStatus(actions, now)
+		s.Name = m.activity.ParseName(s.SessionID, s.CWD)
+		tokIn, tokOut := m.activity.ParseTokens(s.SessionID, s.CWD)
+		s.TokensIn = FormatTokens(tokIn)
+		s.TokensOut = FormatTokens(tokOut)
+		fileMod := m.activity.LastModifiedMs(s.SessionID, s.CWD)
+		s.Status = DetermineStatus(actions, fileMod, now)
 		s.Duration = FormatDuration(now - s.StartedAt)
 		result = append(result, s)
 	}

@@ -25,8 +25,11 @@ export namespace monitor {
 	    startedAt: number;
 	    source: string;
 	    projectName: string;
+	    name: string;
 	    status: string;
 	    duration: string;
+	    tokensIn: string;
+	    tokensOut: string;
 	    recentActions: Action[];
 	
 	    static createFrom(source: any = {}) {
@@ -41,8 +44,11 @@ export namespace monitor {
 	        this.startedAt = source["startedAt"];
 	        this.source = source["source"];
 	        this.projectName = source["projectName"];
+	        this.name = source["name"];
 	        this.status = source["status"];
 	        this.duration = source["duration"];
+	        this.tokensIn = source["tokensIn"];
+	        this.tokensOut = source["tokensOut"];
 	        this.recentActions = this.convertValues(source["recentActions"], Action);
 	    }
 	
