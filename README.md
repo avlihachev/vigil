@@ -21,7 +21,7 @@ Vigil sits in your menubar and polls Claude Code's local data files every 3 seco
 
 ## Install
 
-Download the latest `Vigil.dmg` from [Releases](../../releases), open it, and drag Vigil to Applications.
+Download the latest **[Vigil.dmg](https://github.com/avlihachev/vigil/releases/latest/download/Vigil.dmg)**, open it, and drag Vigil to Applications.
 
 On first launch, grant **Accessibility** access when prompted (`System Settings → Privacy & Security → Accessibility`). This is required to raise terminal/editor windows on click.
 
