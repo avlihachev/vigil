@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"claude-sessions-monitor/monitor"
+	"claude-sessions-monitor/switcher"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -58,6 +59,10 @@ func (a *App) emitSessions() {
 
 func (a *App) GetSessions() []monitor.Session {
 	return a.manager.Collect()
+}
+
+func (a *App) OpenSession(source string, cwd string) {
+	switcher.ActivateSession(source, cwd)
 }
 
 func (a *App) ToggleWindow() {
