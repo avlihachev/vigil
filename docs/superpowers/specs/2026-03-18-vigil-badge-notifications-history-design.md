@@ -28,11 +28,25 @@ Show how many sessions need attention directly on the tray icon so the user does
 - Count > 0 → number drawn over icon
 
 ### Implementation
-- `tray/tray_darwin.m`: new `traySetBadge(int count)` function
-  - Renders the base icon + number string via `NSImage` + `NSString drawAtPoint:`
-  - Updates `NSStatusBarButton.image`
-- `tray/tray_darwin.go`: exports `SetBadge(count int)` Go wrapper
-- `app.go`: after each `Collect()`, compute count and call `tray.SetBadge(count)`
+
+**`tray/tray_darwin.m`**: new `traySetBadge(int count)` function
+- Renders the base icon + number string via `NSImage` + `NSString drawAtPoint:`
+- Updates `NSStatusBarButton.image`
+
+**`tray/tray_darwin.go`**: declare `traySetBadge` in the CGo preamble alongside other `void tray_*` declarations (NOT with `//export` — it is called from Go into ObjC, not the other way around):
+```go
+/*
+...existing declarations...
+void traySetBadge(int count);
+*/
+import "C"
+
+func SetBadge(count int) {
+    C.traySetBadge(C.int(count))
+}
+```
+
+**`app.go`**: after each `Collect()`, compute count and call `tray.SetBadge(count)`.
 
 ---
 
@@ -43,7 +57,8 @@ Alert the user when Claude is waiting for tool confirmation so they can switch t
 
 ### Trigger
 - Session transitions into `confirm` status (was not `confirm` in previous poll)
-- Same session is NOT re-notified until it leaves and re-enters `confirm`
+- A session is NOT re-notified while it stays in `confirm`
+- If it transitions to ANY other status (including `idle`) the `notified` flag is cleared, so a future `confirm` re-triggers a notification
 
 ### Content
 ```
@@ -52,17 +67,53 @@ Body:   «<ProjectName>» needs confirmation
 ```
 
 ### Implementation
-- `monitor/notifier.go`: `Notifier` struct
-  - Holds `notified map[string]bool` (keyed by sessionID)
-  - `Check(prev, curr []Session)` — detects new `confirm` transitions, fires notification, tracks state
-  - Fires via `osascript -e 'display notification "..." with title "Vigil"'`
-- `app.go`: `Notifier` initialized at startup; called in `emitSessions()` with previous/current session snapshots
+
+**`monitor/notifier.go`**: `Notifier` struct
+```go
+type Notifier struct {
+    notified map[string]bool // keyed by sessionID
+    enabled  atomic.Bool     // use sync/atomic for lock-free read in Check
+    mu       sync.Mutex      // guards notified map only
+}
+```
+- `Check(prev, curr []Session)` — detects new `confirm` transitions, fires notification, tracks state
+  - Reads `enabled` via `atomic.Bool.Load()` — no mutex needed for this field
+  - Acquires `mu` to read/write the `notified` map
+  - For each sessionID in `curr` with status `confirm`: if not in `notified` map → fire, add to map
+  - For each sessionID in `notified` that is NOT `confirm` in `curr` (including gone or idle) → delete from map
+  - Skips all firing if `enabled == false`
+- `SetEnabled(v bool)` — calls `atomic.Bool.Store(v)`
+- Fires via `exec.Command("osascript", "-e", `display notification "..." with title "Vigil"``)`
+
+**`app.go`**:
+- `Notifier` field on `App`, initialized at startup
+- Called in `emitSessions()` with previous and current session slices
+- `prevSessions []Session` stored as a field on `App`, updated each tick
 
 ### Settings
-- `~/.vigil/settings.json`: `{ "notificationsEnabled": true }`
-- `App.SetNotificationsEnabled(enabled bool)` — writes file, updates in-memory flag
-- `Notifier.Check()` skips if disabled
-- Loaded at startup; defaults to `true` if file absent
+
+`~/.vigil/settings.json`:
+```json
+{ "notificationsEnabled": true }
+```
+
+**Concurrency**: settings are read/written from two goroutines (poll goroutine reads; Wails handler goroutine writes). Use a `sync.Mutex` on a `Settings` struct in `app.go`:
+```go
+type Settings struct {
+    NotificationsEnabled bool `json:"notificationsEnabled"`
+}
+type App struct {
+    ...
+    settingsMu sync.Mutex
+    settings   Settings
+}
+```
+
+**App methods** (both called by frontend via Wails):
+- `SetNotificationsEnabled(enabled bool)` — acquires mutex, updates `settings`, writes file, propagates to `Notifier.SetEnabled()`
+- `GetNotificationsEnabled() bool` — acquires mutex, returns current value
+
+Loaded at startup from file; defaults to `true` if file absent.
 
 ---
 
@@ -72,7 +123,9 @@ Body:   «<ProjectName>» needs confirmation
 Browse all past Claude Code sessions (no active PID) grouped by project, and resume them in the right IDE/terminal.
 
 ### Data Source
-`~/.claude/projects/**/*.jsonl` — all JSONL files whose `cwd` does not belong to any currently active session.
+Walk `~/.claude/projects/` directories. Each directory name is an encoded CWD (`strings.ReplaceAll(cwd, "/", "-")`). For each `.jsonl` file in each directory, check if the directory name appears among the active sessions' re-encoded CWDs — compute the encoded form of each active session CWD on the fly with `strings.ReplaceAll(s.CWD, "/", "-")` and build a `map[string]bool` lookup before walking. If the directory name is in that map, skip it (active session); otherwise include it in history.
+
+**CWD recovery**: decode directory name with `"/" + strings.ReplaceAll(encoded, "-", "/")`. This is lossy when the original path contains literal `-` characters; this limitation is accepted as a known edge case. The decoded CWD is used for display and for `ResumeSession`.
 
 ### Data Extracted Per Session
 | Field | Source |
@@ -80,19 +133,27 @@ Browse all past Claude Code sessions (no active PID) grouped by project, and res
 | `sessionId` | filename (without `.jsonl`) |
 | `name` | `customTitle` or `slug` from JSONL (reuse `ParseName`) |
 | `lastActiveAt` | file modification time |
-| `tokensIn/Out` | reuse `ParseTokens` |
+| `tokensIn/Out` | reuse `ParseTokens` — but scan only last 200 lines (same `tailFile` helper) to bound latency for large files |
 
 ### Grouping
-- Grouped by decoded `cwd` path (project folder)
-- Sorted by most recent `lastActiveAt` descending
-- Max 50 projects shown; max 5 sessions per project
+- Grouped by decoded CWD
+- Groups sorted by most recent `lastActiveAt` descending
+- Max 50 projects; max 5 sessions per project (most recent first)
 
 ### Resume Action
+
 `App.ResumeSession(cwd, sessionID string)`:
-1. Checks if VSCode/Cursor is open with that `cwd` (reuse `IDEDetector`)
-2. If yes: opens a terminal in that IDE window, runs `claude --resume <sessionID>`
-3. If no: opens the system default terminal at `cwd`, runs `claude --resume <sessionID>`
-4. Uses existing `switcher` package for IDE activation
+1. Sanitize both `cwd` and `sessionID` before embedding in AppleScript: escape all `"` → `\"` (e.g. `strings.ReplaceAll(s, `"`, `\"`)`). Session IDs from Claude Code are UUID-like and contain no special chars, but CWDs can contain quotes on unusual setups — sanitize both unconditionally.
+2. Uses `osascript` to open a new Terminal.app window at `cwd` running `claude --resume <sessionID>`:
+```applescript
+tell application "Terminal"
+    do script "cd \"<escaped-cwd>\" && claude --resume \"<escaped-sessionID>\""
+    activate
+end tell
+```
+3. If VS Code or Cursor is detected as open for that `cwd` (via `IDEDetector`), additionally bring the IDE window to the front using the existing `switcher.ActivateSession` — but this is best-effort; the terminal command always runs regardless.
+
+Note: the resume command runs in a new macOS Terminal window, not in the IDE's integrated terminal, to avoid the complexity of terminal injection.
 
 ### New Go Types
 ```go
@@ -106,8 +167,8 @@ type HistoricalSession struct {
 }
 
 type ProjectHistory struct {
-    ProjectName string             `json:"projectName"`
-    CWD         string             `json:"cwd"`
+    ProjectName string              `json:"projectName"`
+    CWD         string              `json:"cwd"`
     Sessions    []HistoricalSession `json:"sessions"`
 }
 ```
@@ -116,6 +177,7 @@ type ProjectHistory struct {
 - `GetHistory() []ProjectHistory`
 - `ResumeSession(cwd, sessionID string)`
 - `SetNotificationsEnabled(enabled bool)`
+- `GetNotificationsEnabled() bool`
 
 ---
 
@@ -137,11 +199,12 @@ Collapsible project groups:
 
 ▶ other-project            ...
 ```
-- Groups collapsed by default if > 1 session; expanded if 1 session
+- Groups with > 1 session are collapsed by default; groups with exactly 1 session are expanded
 - Click on a session row → `ResumeSession(cwd, sessionId)`
+- `GetHistory()` called once when the tab is first opened; no auto-refresh (history is static)
 
 ### Settings toggle
-`status-bar.ts` gains a small gear icon (⚙) on the right. Click shows an inline overlay with a single toggle: `Notifications for confirmations`. State read/written via `SetNotificationsEnabled()`.
+`status-bar.ts` gains a small gear icon (⚙) on the right. Click shows an inline overlay with a single toggle: `Notifications for confirmations`. On mount, reads initial state via `GetNotificationsEnabled()`. Changes call `SetNotificationsEnabled(bool)`.
 
 ### New Frontend Types
 ```ts
@@ -165,21 +228,25 @@ interface ProjectHistory {
 
 ```
 poll tick (3s)
-  → monitor.Manager.Collect()         → []Session
-  → Notifier.Check(prev, curr)        → osascript if new confirm
+  → monitor.Manager.Collect()              → []Session
+  → Notifier.Check(prevSessions, curr)     → osascript if new confirm
   → tray.SetBadge(confirmCount + waitingCount)
-  → wails event "sessions:updated"    → frontend Active tab
+  → wails event "sessions:updated"         → frontend Active tab
 
 user opens History tab
-  → App.GetHistory()                  → scans ~/.claude/projects/**/*.jsonl
+  → App.GetHistory()                       → walks ~/.claude/projects/**/*.jsonl
   → filters out active cwds
-  → groups, sorts, limits
-  → returns []ProjectHistory          → frontend history-list
+  → groups, sorts, limits (50 proj × 5 sessions)
+  → returns []ProjectHistory              → frontend history-list
 
 user clicks history session
   → App.ResumeSession(cwd, sessionId)
-  → IDEDetector checks open IDEs
-  → switcher opens terminal + claude --resume <id>
+  → osascript opens new Terminal.app window, runs claude --resume <id>
+  → switcher.ActivateSession for IDE (best-effort)
+
+user toggles notification setting
+  → App.SetNotificationsEnabled(bool)     → settingsMu.Lock, write file, update Notifier
+  → App.GetNotificationsEnabled() bool    → settingsMu.Lock, read current value
 ```
 
 ---
@@ -189,3 +256,4 @@ user clicks history session
 - Cost / pricing calculations
 - Per-session statistics panel
 - Cross-machine sync
+- Injecting commands into VS Code's integrated terminal
