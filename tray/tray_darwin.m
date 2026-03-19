@@ -119,3 +119,51 @@ void tray_hide_popup(void) {
         }
     });
 }
+
+void traySetBadge(int count) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (statusItem == nil) return;
+
+        if (count <= 0) {
+            statusItem.button.image = nil;
+            statusItem.button.title = @"◉";
+            return;
+        }
+
+        // render a small colored square with the count number as the button image
+        NSSize size = NSMakeSize(22, 18);
+        NSImage *img = [[NSImage alloc] initWithSize:size];
+        [img lockFocus];
+
+        NSString *base = @"◉";
+        NSDictionary *baseAttrs = @{
+            NSFontAttributeName: [NSFont systemFontOfSize:13],
+            NSForegroundColorAttributeName: [NSColor labelColor],
+        };
+        [base drawAtPoint:NSMakePoint(0, 2) withAttributes:baseAttrs];
+
+        NSString *label = [NSString stringWithFormat:@"%d", count > 9 ? 9 : count];
+        NSDictionary *attrs = @{
+            NSFontAttributeName: [NSFont boldSystemFontOfSize:8],
+            NSForegroundColorAttributeName: [NSColor whiteColor],
+        };
+        NSSize textSize = [label sizeWithAttributes:attrs];
+        CGFloat badgeW = MAX(textSize.width + 4, 11);
+        NSRect badgeRect = NSMakeRect(size.width - badgeW, size.height - 11, badgeW, 11);
+
+        [[NSColor colorWithRed:0.94 green:0.27 blue:0.27 alpha:1.0] setFill];
+        NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:badgeRect xRadius:3 yRadius:3];
+        [path fill];
+
+        NSPoint textPoint = NSMakePoint(
+            badgeRect.origin.x + (badgeW - textSize.width) / 2,
+            badgeRect.origin.y + (11 - textSize.height) / 2
+        );
+        [label drawAtPoint:textPoint withAttributes:attrs];
+
+        [img unlockFocus];
+        [img setTemplate:NO];
+        statusItem.button.image = img;
+        statusItem.button.title = @"";
+    });
+}

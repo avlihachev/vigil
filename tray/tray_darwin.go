@@ -11,6 +11,7 @@ void tray_set_title(const char* title);
 void tray_remove(void);
 void tray_show_popup(void);
 void tray_hide_popup(void);
+void traySetBadge(int count);
 
 // callbacks implemented in Go
 extern void trayOnClick();
@@ -51,6 +52,10 @@ func ShowPopup() {
 
 func HidePopup() {
 	C.tray_hide_popup()
+}
+
+func SetBadge(count int) {
+	C.traySetBadge(C.int(count))
 }
 
 //export trayOnClick
