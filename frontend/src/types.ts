@@ -46,3 +46,8 @@ export interface Settings {
   badgeWaiting: boolean;
   badgeActive: boolean;
 }
+
+export interface UpdateInfo {
+  version: string;
+  downloadURL: string;
+}
