@@ -23,3 +23,25 @@ export interface Session {
   tokensOut: string;
   recentActions: Action[];
 }
+
+export interface HistoricalSession {
+  sessionId: string;
+  name: string;
+  lastActiveAt: number;
+  tokensIn: string;
+  tokensOut: string;
+}
+
+export interface ProjectHistory {
+  projectName: string;
+  cwd: string;
+  sessions: HistoricalSession[];
+}
+
+export interface Settings {
+  notifyConfirm: boolean;
+  notifyWaiting: boolean;
+  badgeConfirm: boolean;
+  badgeWaiting: boolean;
+  badgeActive: boolean;
+}
