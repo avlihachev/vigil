@@ -42,6 +42,7 @@ type Session struct {
 	TokensIn      string        `json:"tokensIn"`
 	TokensOut     string        `json:"tokensOut"`
 	RecentActions []Action      `json:"recentActions"`
+	Sibling       string        `json:"sibling,omitempty"`
 }
 
 func FormatTokens(n int64) string {

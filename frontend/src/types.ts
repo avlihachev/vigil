@@ -22,6 +22,7 @@ export interface Session {
   tokensIn: string;
   tokensOut: string;
   recentActions: Action[];
+  sibling?: string;
 }
 
 export interface HistoricalSession {

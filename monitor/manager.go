@@ -1,6 +1,9 @@
 package monitor
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 type Manager struct {
 	scanner  *Scanner
@@ -16,13 +19,6 @@ func NewManager(baseDir string) *Manager {
 	}
 }
 
-var statusPriority = map[SessionStatus]int{
-	StatusConfirm: 0,
-	StatusActive:  1,
-	StatusWaiting: 2,
-	StatusIdle:    3,
-}
-
 func (m *Manager) Collect() []Session {
 	raw, err := m.scanner.ScanSessions()
 	if err != nil {
@@ -31,7 +27,7 @@ func (m *Manager) Collect() []Session {
 	m.ide.Load()
 
 	now := time.Now().UnixMilli()
-	var all []Session
+	var result []Session
 	for _, s := range raw {
 		if !IsProcessAlive(s.PID) {
 			continue
@@ -49,26 +45,25 @@ func (m *Manager) Collect() []Session {
 		fileMod := m.activity.LastModifiedMs(s.SessionID, s.CWD)
 		s.Status = DetermineStatus(actions, fileMod, now)
 		s.Duration = FormatDuration(now - s.StartedAt)
-		all = append(all, s)
-	}
-
-	// deduplicate by CWD: when multiple sessions share a CWD (resumed sessions),
-	// keep the one with the highest-priority status (most active)
-	seen := make(map[string]int) // cwd → index in result
-	var result []Session
-	for _, s := range all {
-		if idx, ok := seen[s.CWD]; ok {
-			existing := result[idx]
-			ep := statusPriority[existing.Status]
-			sp := statusPriority[s.Status]
-			if sp < ep || (sp == ep && s.StartedAt > existing.StartedAt) {
-				result[idx] = s
-			}
-			continue
-		}
-		seen[s.CWD] = len(result)
 		result = append(result, s)
 	}
+
+	// mark sibling sessions sharing the same CWD
+	cwdCount := make(map[string]int)
+	for _, s := range result {
+		cwdCount[s.CWD]++
+	}
+	if len(result) > 0 {
+		idx := make(map[string]int)
+		for i := range result {
+			cwd := result[i].CWD
+			if cwdCount[cwd] > 1 {
+				idx[cwd]++
+				result[i].Sibling = fmt.Sprintf("%d/%d", idx[cwd], cwdCount[cwd])
+			}
+		}
+	}
+
 	return result
 }
 

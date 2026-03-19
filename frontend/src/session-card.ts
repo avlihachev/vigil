@@ -206,6 +206,7 @@ export class SessionCard extends LitElement {
           <span class="dot ${s.status}"></span>
           <span class="name">${s.projectName}</span>
           <span class="source">${s.source}</span>
+          ${s.sibling ? html`<span class="source">${s.sibling}</span>` : ''}
           ${s.tokensIn || s.tokensOut ? html`
             <div class="tokens">
               ${s.tokensIn  ? html`<span class="tok-in">↑${s.tokensIn}</span>`  : ''}
