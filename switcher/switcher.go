@@ -59,9 +59,14 @@ func ActivateSession(source string, cwd string, pid int) error {
 
 	switch source {
 	case "VSCode":
-		// AX API first — handles workspaces where title differs from folder name
 		if activateByAX("Code", "Visual Studio Code", cwdURL, folderName) == nil {
 			return nil
+		}
+		// try workspace name from .code-workspace file
+		if wsName := findWorkspaceName(cwd); wsName != "" {
+			if activateByAX("Code", "Visual Studio Code", "", wsName) == nil {
+				return nil
+			}
 		}
 		if codePath := findCodeCLI(); codePath != "" {
 			exec.Command(codePath, cwd).Run()
@@ -71,6 +76,11 @@ func ActivateSession(source string, cwd string, pid int) error {
 	case "Cursor":
 		if activateByAX("Cursor", "Cursor", cwdURL, folderName) == nil {
 			return nil
+		}
+		if wsName := findWorkspaceName(cwd); wsName != "" {
+			if activateByAX("Cursor", "Cursor", "", wsName) == nil {
+				return nil
+			}
 		}
 		if cursorPath := findCursorCLI(); cursorPath != "" {
 			exec.Command(cursorPath, cwd).Run()
@@ -102,6 +112,25 @@ func activateByAX(procName, appName, docMatch, titleMatch string) error {
 	// result == -1: no accessibility — bring app to front at least
 	exec.Command("open", "-a", appName).Run()
 	return nil
+}
+
+// findWorkspaceName walks up from cwd looking for .code-workspace files
+// and returns the workspace name (filename without extension)
+func findWorkspaceName(cwd string) string {
+	dir := cwd
+	for {
+		matches, _ := filepath.Glob(filepath.Join(dir, "*.code-workspace"))
+		if len(matches) > 0 {
+			base := filepath.Base(matches[0])
+			return strings.TrimSuffix(base, ".code-workspace")
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
 }
 
 func isTerminalComm(comm string) bool {
