@@ -2,6 +2,9 @@ package monitor
 
 import (
 	"fmt"
+	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -26,8 +29,8 @@ func (m *Manager) Collect() []Session {
 	}
 	m.ide.Load()
 
-	now := time.Now().UnixMilli()
-	var result []Session
+	// filter alive and enrich with source
+	var alive []Session
 	for _, s := range raw {
 		if !IsProcessAlive(s.PID) {
 			continue
@@ -36,14 +39,74 @@ func (m *Manager) Collect() []Session {
 		if s.Source == "Terminal" {
 			s.Source = terminalForPID(s.PID)
 		}
-		actions, _ := m.activity.Parse(s.SessionID, s.CWD)
-		s.RecentActions = actions
-		s.Name = m.activity.ParseName(s.SessionID, s.CWD)
-		tokIn, tokOut := m.activity.ParseTokens(s.SessionID, s.CWD)
-		s.TokensIn = FormatTokens(tokIn)
-		s.TokensOut = FormatTokens(tokOut)
-		fileMod := m.activity.LastModifiedMs(s.SessionID, s.CWD)
-		s.Status = DetermineStatus(actions, fileMod, now)
+		alive = append(alive, s)
+	}
+
+	// group by CWD
+	byCWD := map[string][]int{}
+	for i, s := range alive {
+		byCWD[s.CWD] = append(byCWD[s.CWD], i)
+	}
+
+	// resolve JSONL path for each session
+	jsonlPaths := make([]string, len(alive))
+	for cwd, indices := range byCWD {
+		if len(indices) == 1 {
+			i := indices[0]
+			jsonlPaths[i] = m.activity.FindJSONL(alive[i].SessionID, cwd)
+		} else {
+			// greedy 1:1 matching: sort sessions by startedAt desc, jsonls by modTime desc
+			sorted := make([]int, len(indices))
+			copy(sorted, indices)
+			sort.Slice(sorted, func(a, b int) bool {
+				return alive[sorted[a]].StartedAt > alive[sorted[b]].StartedAt
+			})
+
+			jsonls := m.activity.ListProjectJSONLs(cwd)
+
+			// first pass: exact filename match
+			used := make(map[string]bool)
+			for _, i := range sorted {
+				for _, jp := range jsonls {
+					if used[jp] {
+						continue
+					}
+					// check exact match by sessionID in filename
+					if matchesFilename(jp, alive[i].SessionID) {
+						jsonlPaths[i] = jp
+						used[jp] = true
+						break
+					}
+				}
+			}
+
+			// second pass: greedy assign remaining by mod-time order
+			jIdx := 0
+			for _, i := range sorted {
+				if jsonlPaths[i] != "" {
+					continue
+				}
+				for jIdx < len(jsonls) && used[jsonls[jIdx]] {
+					jIdx++
+				}
+				if jIdx < len(jsonls) {
+					jsonlPaths[i] = jsonls[jIdx]
+					used[jsonls[jIdx]] = true
+					jIdx++
+				}
+			}
+		}
+	}
+
+	now := time.Now().UnixMilli()
+	result := make([]Session, 0, len(alive))
+	for i, s := range alive {
+		sa := m.activity.ParseAllFromPath(jsonlPaths[i])
+		s.RecentActions = sa.Actions
+		s.Name = sa.Name
+		s.TokensIn = FormatTokens(sa.TokensIn)
+		s.TokensOut = FormatTokens(sa.TokensOut)
+		s.Status = DetermineStatus(sa.Actions, sa.FileModMs, now)
 		s.Duration = FormatDuration(now - s.StartedAt)
 		result = append(result, s)
 	}
@@ -65,6 +128,12 @@ func (m *Manager) Collect() []Session {
 	}
 
 	return result
+}
+
+// matchesFilename checks if a JSONL path's filename (without extension) matches a sessionID
+func matchesFilename(jsonlPath, sessionID string) bool {
+	base := filepath.Base(jsonlPath)
+	return strings.TrimSuffix(base, ".jsonl") == sessionID
 }
 
 func (m *Manager) GetIDESource(cwd string) string {

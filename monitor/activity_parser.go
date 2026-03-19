@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -53,21 +54,67 @@ type contentBlock struct {
 	Name string `json:"name"`
 }
 
-// LastModifiedMs returns the JSONL file modification time in unix ms, or 0
-func (p *ActivityParser) LastModifiedMs(sessionID string, cwd string) int64 {
-	jsonlPath := p.findJSONL(sessionID, cwd)
+// SessionActivity holds all parsed data from a single JSONL file
+type SessionActivity struct {
+	Actions   []Action
+	Name      string
+	TokensIn  int64
+	TokensOut int64
+	FileModMs int64
+}
+
+// ParseAllFromPath reads a JSONL file once and extracts actions, name, and tokens
+func (p *ActivityParser) ParseAllFromPath(jsonlPath string) SessionActivity {
+	var sa SessionActivity
 	if jsonlPath == "" {
-		return 0
+		return sa
 	}
+
 	info, err := os.Stat(jsonlPath)
 	if err != nil {
-		return 0
+		return sa
 	}
-	return info.ModTime().UnixMilli()
+	sa.FileModMs = info.ModTime().UnixMilli()
+
+	lines, err := readAllLines(jsonlPath)
+	if err != nil {
+		return sa
+	}
+
+	// single pass: extract tokens, name, slug
+	var slug string
+	for _, line := range lines {
+		var entry jsonlEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		if entry.Type == "assistant" && entry.Message != nil && entry.Message.Usage != nil {
+			sa.TokensIn += entry.Message.Usage.InputTokens
+			sa.TokensOut += entry.Message.Usage.OutputTokens
+		}
+		if entry.Type == "custom-title" && entry.CustomTitle != "" {
+			sa.Name = entry.CustomTitle
+		}
+		if slug == "" && entry.Slug != "" {
+			slug = entry.Slug
+		}
+	}
+	if sa.Name == "" {
+		sa.Name = slug
+	}
+
+	// extract actions from tail
+	tail := lines
+	if len(tail) > 200 {
+		tail = tail[len(tail)-200:]
+	}
+	sa.Actions = parseActionsFromLines(tail)
+
+	return sa
 }
 
 func (p *ActivityParser) Parse(sessionID string, cwd string) ([]Action, error) {
-	jsonlPath := p.findJSONL(sessionID, cwd)
+	jsonlPath := p.FindJSONL(sessionID, cwd)
 	if jsonlPath == "" {
 		return nil, nil
 	}
@@ -77,8 +124,11 @@ func (p *ActivityParser) Parse(sessionID string, cwd string) ([]Action, error) {
 		return nil, nil
 	}
 
+	return parseActionsFromLines(lines), nil
+}
+
+func parseActionsFromLines(lines []string) []Action {
 	var actions []Action
-	// track the last assistant state to detect what Claude is waiting for
 	lastAssistantWasTextOnly := false
 	lastAssistantHadToolUse := false
 	gotUserAfterLastAssistant := false
@@ -121,11 +171,9 @@ func (p *ActivityParser) Parse(sessionID string, cwd string) ([]Action, error) {
 			lastAssistantTs = ts
 		}
 
-		// user entry with toolUseResult = tool executed, Claude is responding
 		if entry.Type == "user" && len(entry.ToolUseResult) > 0 {
 			gotUserAfterLastAssistant = true
 		}
-		// user entry without toolUseResult = human message, Claude is responding
 		if entry.Type == "user" && entry.Message != nil && len(entry.ToolUseResult) == 0 {
 			gotUserAfterLastAssistant = true
 			lastAssistantWasTextOnly = false
@@ -133,7 +181,6 @@ func (p *ActivityParser) Parse(sessionID string, cwd string) ([]Action, error) {
 		}
 	}
 
-	// waiting for tool approval: last assistant had tool_use but no result came back yet
 	if lastAssistantHadToolUse && !gotUserAfterLastAssistant && lastAssistantTs > 0 {
 		actions = append(actions, Action{
 			Type:      ActionConfirm,
@@ -142,7 +189,6 @@ func (p *ActivityParser) Parse(sessionID string, cwd string) ([]Action, error) {
 		})
 	}
 
-	// waiting for user input: last assistant message was text-only (finished responding)
 	if lastAssistantWasTextOnly && lastAssistantTs > 0 {
 		actions = append(actions, Action{
 			Type:      ActionWaiting,
@@ -154,20 +200,7 @@ func (p *ActivityParser) Parse(sessionID string, cwd string) ([]Action, error) {
 	if len(actions) > 5 {
 		actions = actions[len(actions)-5:]
 	}
-	return actions, nil
-}
-
-// ParseTokens sums input and output tokens separately across all assistant messages.
-func (p *ActivityParser) ParseTokens(sessionID string, cwd string) (in, out int64) {
-	jsonlPath := p.findJSONL(sessionID, cwd)
-	if jsonlPath == "" {
-		return
-	}
-	lines, err := readAllLines(jsonlPath)
-	if err != nil {
-		return
-	}
-	return parseTokensFromLines(lines)
+	return actions
 }
 
 func parseTokensFromLines(lines []string) (in, out int64) {
@@ -199,20 +232,19 @@ func readAllLines(path string) ([]string, error) {
 	return lines, nil
 }
 
-// ParseName returns the session display name: custom title if set, otherwise slug.
+// ParseName returns the session display name: last custom title if set, otherwise slug.
 func (p *ActivityParser) ParseName(sessionID string, cwd string) string {
-	jsonlPath := p.findJSONL(sessionID, cwd)
+	jsonlPath := p.FindJSONL(sessionID, cwd)
 	if jsonlPath == "" {
 		return ""
 	}
-	// scan whole file: custom-title can appear anywhere, slug appears in most entries
 	f, err := os.Open(jsonlPath)
 	if err != nil {
 		return ""
 	}
 	defer f.Close()
 
-	var slug string
+	var slug, name string
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
 	for scanner.Scan() {
@@ -221,16 +253,20 @@ func (p *ActivityParser) ParseName(sessionID string, cwd string) string {
 			continue
 		}
 		if entry.Type == "custom-title" && entry.CustomTitle != "" {
-			return entry.CustomTitle
+			name = entry.CustomTitle
 		}
 		if slug == "" && entry.Slug != "" {
 			slug = entry.Slug
 		}
 	}
+	if name != "" {
+		return name
+	}
 	return slug
 }
 
-func (p *ActivityParser) findJSONL(sessionID string, cwd string) string {
+// FindJSONL locates the JSONL file for a session: exact filename match first, then newest fallback.
+func (p *ActivityParser) FindJSONL(sessionID string, cwd string) string {
 	encoded := strings.ReplaceAll(cwd, "/", "-")
 	dir := filepath.Join(p.baseDir, "projects", encoded)
 
@@ -240,8 +276,7 @@ func (p *ActivityParser) findJSONL(sessionID string, cwd string) string {
 		return exact
 	}
 
-	// for resumed sessions the JSONL filename differs from sessionId —
-	// scan last lines of each JSONL to find one containing this sessionId
+	// fallback to newest JSONL in the project dir
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return ""
@@ -252,54 +287,56 @@ func (p *ActivityParser) findJSONL(sessionID string, cwd string) string {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
 			continue
 		}
-		path := filepath.Join(dir, e.Name())
 		info, err := e.Info()
 		if err != nil {
 			continue
 		}
 		if t := info.ModTime().UnixMilli(); t > newestMod {
 			newestMod = t
-			newest = path
-		}
-		// check if this file contains entries for our sessionId
-		if matchesSessionID(path, sessionID) {
-			return path
+			newest = filepath.Join(dir, e.Name())
 		}
 	}
-	// no content match — fall back to newest for brand-new sessions
 	return newest
 }
 
-// matchesSessionID reads the last ~4KB of a JSONL file and checks
-// if any entry contains the given sessionId
-func matchesSessionID(path, sessionID string) bool {
-	f, err := os.Open(path)
+// ListProjectJSONLs returns all .jsonl paths in the project dir for a CWD, sorted by modTime desc.
+func (p *ActivityParser) ListProjectJSONLs(cwd string) []string {
+	encoded := strings.ReplaceAll(cwd, "/", "-")
+	dir := filepath.Join(p.baseDir, "projects", encoded)
+
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return false
-	}
-	defer f.Close()
-
-	info, err := f.Stat()
-	if err != nil {
-		return false
+		return nil
 	}
 
-	// read last 4KB — enough for a few JSONL lines
-	offset := info.Size() - 4096
-	if offset < 0 {
-		offset = 0
+	type jsonlFile struct {
+		path  string
+		modMs int64
 	}
-	f.Seek(offset, 0)
-
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
-	needle := `"sessionId":"` + sessionID + `"`
-	for scanner.Scan() {
-		if strings.Contains(scanner.Text(), needle) {
-			return true
+	var files []jsonlFile
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
 		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, jsonlFile{
+			path:  filepath.Join(dir, e.Name()),
+			modMs: info.ModTime().UnixMilli(),
+		})
 	}
-	return false
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].modMs > files[j].modMs
+	})
+
+	paths := make([]string, len(files))
+	for i, f := range files {
+		paths[i] = f.path
+	}
+	return paths
 }
 
 func parseTimestamp(s string) int64 {
