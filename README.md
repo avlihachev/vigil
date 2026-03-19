@@ -14,6 +14,14 @@ Vigil sits in your menubar and polls Claude Code's local data files every 3 seco
 - 🟠 **Confirm** — needs permission to proceed
 - ⚫ **Idle** — no activity for 5+ minutes
 
+**Desktop notifications** — get notified when a session needs confirmation or is waiting for input.
+
+**Menubar badge** — shows a count of sessions that need attention right on the tray icon.
+
+**Settings panel** — click the gear icon to toggle notifications and badge per status type.
+
+**Auto-update check** — checks GitHub Releases at startup and weekly. An orange dot on the gear icon indicates a new version is available.
+
 ## Requirements
 
 - macOS 12 Monterey or later (Apple Silicon or Intel)
@@ -60,15 +68,15 @@ go test ./monitor/... ./switcher/...
 
 `monitor.Manager.Collect()` merges these three sources into `[]Session`, which is pushed to the Lit/TypeScript frontend via a Wails event every 3 seconds.
 
-Clicking a session calls `switcher.ActivateSession`, which uses AppleScript + Accessibility APIs to raise the correct window in the right editor or terminal.
+Clicking a session calls `switcher.ActivateSession`, which uses the macOS Accessibility C API to find and raise the correct window — matching by AXDocument (terminals) or window title (VSCode/Cursor, including `.code-workspace` names).
 
 ### Package layout
 
 | Package | Purpose |
 |---------|---------|
-| `monitor/` | Data collection. `Manager` composes Scanner + IDEDetector + ActivityParser. |
-| `switcher/` | AppleScript/Accessibility to raise IDE/terminal windows on click. |
-| `tray/` | Native macOS status bar item via Objective-C + CGo. |
+| `monitor/` | Data collection. `Manager` composes Scanner + IDEDetector + ActivityParser + Updater + Notifier. |
+| `switcher/` | macOS Accessibility C API (CGo) to raise IDE/terminal windows on click. |
+| `tray/` | Native macOS status bar item with badge overlay via Objective-C + CGo. |
 | `frontend/src/` | Lit web components: `session-list`, `session-card`, `status-bar`. |
 
 ## License
