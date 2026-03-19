@@ -14,3 +14,4 @@ frontend/dist
 
 # local Claude Code project settings
 .claude/
+CLAUDE.md
