@@ -50,13 +50,21 @@ import (
 	"testing"
 )
 
-func newTestNotifier() (*Notifier, *[]string) {
-	fired := &[]string{}
+type firedEntry struct {
+	project string
+	status  SessionStatus
+}
+
+func newTestNotifier() (*Notifier, *[]firedEntry) {
+	fired := &[]firedEntry{}
 	n := &Notifier{
-		notified: make(map[string]bool),
-		fireFunc: func(projectName string) { *fired = append(*fired, projectName) },
+		notified: make(map[string]SessionStatus),
+		fireFunc: func(projectName string, status SessionStatus) {
+			*fired = append(*fired, firedEntry{projectName, status})
+		},
 	}
-	n.enabled.Store(true)
+	n.notifyConfirm.Store(true)
+	n.notifyWaiting.Store(false)
 	return n, fired
 }
 
@@ -64,7 +72,7 @@ func TestNotifier_FiresOnNewConfirm(t *testing.T) {
 	n, fired := newTestNotifier()
 	curr := []Session{{SessionID: "s1", ProjectName: "myproject", Status: StatusConfirm}}
 	n.Check(nil, curr)
-	if len(*fired) != 1 || (*fired)[0] != "myproject" {
+	if len(*fired) != 1 || (*fired)[0].project != "myproject" {
 		t.Errorf("expected 1 notification for myproject, got %v", *fired)
 	}
 }
@@ -91,24 +99,45 @@ func TestNotifier_RefiresAfterLeavingConfirm(t *testing.T) {
 	}
 }
 
-func TestNotifier_SkipsWhenDisabled(t *testing.T) {
+func TestNotifier_SkipsConfirmWhenDisabled(t *testing.T) {
 	n, fired := newTestNotifier()
-	n.enabled.Store(false)
+	n.notifyConfirm.Store(false)
 	curr := []Session{{SessionID: "s1", ProjectName: "p", Status: StatusConfirm}}
 	n.Check(nil, curr)
 	if len(*fired) != 0 {
-		t.Errorf("expected 0 notifications when disabled, got %d", len(*fired))
+		t.Errorf("expected 0 notifications when confirm disabled, got %d", len(*fired))
 	}
 }
 
-func TestNotifier_ConcurrentSetEnabled(t *testing.T) {
+func TestNotifier_FiresOnWaitingWhenEnabled(t *testing.T) {
+	n, fired := newTestNotifier()
+	n.notifyWaiting.Store(true)
+	curr := []Session{{SessionID: "s1", ProjectName: "p", Status: StatusWaiting}}
+	n.Check(nil, curr)
+	if len(*fired) != 1 || (*fired)[0].status != StatusWaiting {
+		t.Errorf("expected 1 waiting notification, got %v", *fired)
+	}
+}
+
+func TestNotifier_SkipsWaitingWhenDisabled(t *testing.T) {
+	n, fired := newTestNotifier()
+	// notifyWaiting defaults to false
+	curr := []Session{{SessionID: "s1", ProjectName: "p", Status: StatusWaiting}}
+	n.Check(nil, curr)
+	if len(*fired) != 0 {
+		t.Errorf("expected 0 waiting notifications when disabled, got %d", len(*fired))
+	}
+}
+
+func TestNotifier_ConcurrentConfig(t *testing.T) {
 	n, _ := newTestNotifier()
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func(v bool) {
 			defer wg.Done()
-			n.SetEnabled(v)
+			n.SetNotifyConfirm(v)
+			n.SetNotifyWaiting(v)
 		}(i%2 == 0)
 	}
 	wg.Wait() // must not race
@@ -122,16 +151,21 @@ cd /Users/lihachev/Projects/vigil && go test ./monitor/ -run TestNotifier -v
 ```
 Expected: compile error — `Notifier` not defined.
 
-- [ ] **Step 3: Add CountNeedsAttention to models.go**
+- [ ] **Step 3: Add CountBadge to models.go**
 
 Add at end of `monitor/models.go`:
 ```go
-// CountNeedsAttention returns the number of sessions in confirm or waiting state.
-func CountNeedsAttention(sessions []Session) int {
+// CountBadge returns the number of sessions matching the enabled badge statuses.
+func CountBadge(sessions []Session, confirm, waiting, active bool) int {
 	n := 0
 	for _, s := range sessions {
-		if s.Status == StatusConfirm || s.Status == StatusWaiting {
-			n++
+		switch s.Status {
+		case StatusConfirm:
+			if confirm { n++ }
+		case StatusWaiting:
+			if waiting { n++ }
+		case StatusActive:
+			if active { n++ }
 		}
 	}
 	return n
@@ -151,26 +185,38 @@ import (
 	"sync/atomic"
 )
 
-// Notifier tracks session confirm transitions and fires macOS notifications.
+// Notifier tracks session status transitions and fires macOS notifications
+// for configurable statuses (confirm, waiting).
 type Notifier struct {
-	mu       sync.Mutex
-	notified map[string]bool
-	enabled  atomic.Bool
-	fireFunc func(projectName string) // injectable for tests; nil uses osascript
+	mu            sync.Mutex
+	notified      map[string]SessionStatus
+	notifyConfirm atomic.Bool
+	notifyWaiting atomic.Bool
+	fireFunc      func(projectName string, status SessionStatus) // injectable for tests
 }
 
 func NewNotifier() *Notifier {
-	n := &Notifier{notified: make(map[string]bool)}
-	n.enabled.Store(true)
+	n := &Notifier{notified: make(map[string]SessionStatus)}
+	n.notifyConfirm.Store(true)
+	n.notifyWaiting.Store(false)
 	return n
 }
 
-func (n *Notifier) SetEnabled(v bool) {
-	n.enabled.Store(v)
+func (n *Notifier) SetNotifyConfirm(v bool) { n.notifyConfirm.Store(v) }
+func (n *Notifier) SetNotifyWaiting(v bool) { n.notifyWaiting.Store(v) }
+
+func (n *Notifier) shouldNotify(status SessionStatus) bool {
+	switch status {
+	case StatusConfirm:
+		return n.notifyConfirm.Load()
+	case StatusWaiting:
+		return n.notifyWaiting.Load()
+	}
+	return false
 }
 
 // Check compares prev and curr snapshots, firing a notification when a session
-// enters confirm for the first time. Clears the flag when it leaves confirm.
+// enters an enabled status for the first time. Clears the flag when it leaves.
 func (n *Notifier) Check(prev, curr []Session) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -180,33 +226,42 @@ func (n *Notifier) Check(prev, curr []Session) {
 		currMap[s.SessionID] = s
 	}
 
-	// clear flag for sessions no longer in confirm
-	for id := range n.notified {
-		if s, ok := currMap[id]; !ok || s.Status != StatusConfirm {
+	// clear flag for sessions whose status changed or disappeared
+	for id, prevStatus := range n.notified {
+		s, ok := currMap[id]
+		if !ok || s.Status != prevStatus {
 			delete(n.notified, id)
 		}
 	}
 
-	if !n.enabled.Load() {
-		return
-	}
-
-	// fire for new confirm sessions
+	// fire for new notify-worthy sessions
 	for _, s := range curr {
-		if s.Status == StatusConfirm && !n.notified[s.SessionID] {
-			n.notified[s.SessionID] = true
-			name := s.ProjectName
-			if n.fireFunc != nil {
-				n.fireFunc(name)
-			} else {
-				fireNotification(name)
-			}
+		if !n.shouldNotify(s.Status) {
+			continue
+		}
+		if _, already := n.notified[s.SessionID]; already {
+			continue
+		}
+		n.notified[s.SessionID] = s.Status
+		if n.fireFunc != nil {
+			n.fireFunc(s.ProjectName, s.Status)
+		} else {
+			fireNotification(s.ProjectName, s.Status)
 		}
 	}
 }
 
-func fireNotification(projectName string) {
-	msg := fmt.Sprintf(`display notification "%s needs confirmation" with title "Vigil"`, projectName)
+var statusMessages = map[SessionStatus]string{
+	StatusConfirm: "needs confirmation",
+	StatusWaiting: "waiting for input",
+}
+
+func fireNotification(projectName string, status SessionStatus) {
+	text := statusMessages[status]
+	if text == "" {
+		text = string(status)
+	}
+	msg := fmt.Sprintf(`display notification "%s %s" with title "Vigil"`, projectName, text)
 	exec.Command("osascript", "-e", msg).Run()
 }
 ```
@@ -222,17 +277,30 @@ Expected: all 5 pass.
 
 Add to `monitor/models_test.go`:
 ```go
-func TestCountNeedsAttention(t *testing.T) {
+func TestCountBadge(t *testing.T) {
 	sessions := []Session{
 		{SessionID: "1", Status: StatusConfirm},
 		{SessionID: "2", Status: StatusWaiting},
 		{SessionID: "3", Status: StatusActive},
 		{SessionID: "4", Status: StatusIdle},
 	}
-	if n := CountNeedsAttention(sessions); n != 2 {
-		t.Errorf("expected 2, got %d", n)
+	// confirm + waiting only
+	if n := CountBadge(sessions, true, true, false); n != 2 {
+		t.Errorf("expected 2 (confirm+waiting), got %d", n)
 	}
-	if n := CountNeedsAttention(nil); n != 0 {
+	// confirm only
+	if n := CountBadge(sessions, true, false, false); n != 1 {
+		t.Errorf("expected 1 (confirm only), got %d", n)
+	}
+	// all three
+	if n := CountBadge(sessions, true, true, true); n != 3 {
+		t.Errorf("expected 3 (confirm+waiting+active), got %d", n)
+	}
+	// nothing enabled
+	if n := CountBadge(sessions, false, false, false); n != 0 {
+		t.Errorf("expected 0 (all disabled), got %d", n)
+	}
+	if n := CountBadge(nil, true, true, true); n != 0 {
 		t.Errorf("expected 0 for nil, got %d", n)
 	}
 }
@@ -249,7 +317,7 @@ Expected: all pass.
 
 ```bash
 cd /Users/lihachev/Projects/vigil && git add monitor/notifier.go monitor/notifier_test.go monitor/models.go monitor/models_test.go
-git commit -m "feat: add Notifier and CountNeedsAttention helper"
+git commit -m "feat: add Notifier with configurable statuses and CountBadge helper"
 ```
 
 ---
@@ -742,7 +810,11 @@ import (
 )
 
 type Settings struct {
-	NotificationsEnabled bool `json:"notificationsEnabled"`
+	NotifyConfirm bool `json:"notifyConfirm"`
+	NotifyWaiting bool `json:"notifyWaiting"`
+	BadgeConfirm  bool `json:"badgeConfirm"`
+	BadgeWaiting  bool `json:"badgeWaiting"`
+	BadgeActive   bool `json:"badgeActive"`
 }
 
 type App struct {
@@ -775,15 +847,30 @@ func NewApp() *App {
 	return app
 }
 
+func defaultSettings() Settings {
+	return Settings{
+		NotifyConfirm: true,
+		NotifyWaiting: false,
+		BadgeConfirm:  true,
+		BadgeWaiting:  true,
+		BadgeActive:   false,
+	}
+}
+
 func (a *App) loadSettings() {
 	a.settingsMu.Lock()
 	defer a.settingsMu.Unlock()
-	a.settings = Settings{NotificationsEnabled: true} // default
+	a.settings = defaultSettings()
 	data, err := os.ReadFile(a.settingsPath)
 	if err == nil {
 		json.Unmarshal(data, &a.settings)
 	}
-	a.notifier.SetEnabled(a.settings.NotificationsEnabled)
+	a.applySettings()
+}
+
+func (a *App) applySettings() {
+	a.notifier.SetNotifyConfirm(a.settings.NotifyConfirm)
+	a.notifier.SetNotifyWaiting(a.settings.NotifyWaiting)
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -822,7 +909,12 @@ func (a *App) pollLoop() {
 func (a *App) emitSessions() {
 	sessions := a.manager.Collect()
 	a.notifier.Check(a.prevSessions, sessions)
-	tray.SetBadge(monitor.CountNeedsAttention(sessions))
+
+	a.settingsMu.Lock()
+	badge := monitor.CountBadge(sessions, a.settings.BadgeConfirm, a.settings.BadgeWaiting, a.settings.BadgeActive)
+	a.settingsMu.Unlock()
+	tray.SetBadge(badge)
+
 	a.prevSessions = sessions
 	runtime.EventsEmit(a.ctx, "sessions:updated", sessions)
 }
@@ -865,21 +957,23 @@ end tell`, escapedCWD, escapedID)
 	}
 }
 
-func (a *App) SetNotificationsEnabled(enabled bool) {
+// GetSettings returns the current settings for the frontend.
+func (a *App) GetSettings() Settings {
 	a.settingsMu.Lock()
-	a.settings.NotificationsEnabled = enabled
+	defer a.settingsMu.Unlock()
+	return a.settings
+}
+
+// UpdateSettings saves the settings and applies them immediately.
+func (a *App) UpdateSettings(s Settings) {
+	a.settingsMu.Lock()
+	a.settings = s
 	data, _ := json.MarshalIndent(a.settings, "", "  ")
 	path := a.settingsPath
 	a.settingsMu.Unlock()
 
 	os.WriteFile(path, data, 0644)
-	a.notifier.SetEnabled(enabled)
-}
-
-func (a *App) GetNotificationsEnabled() bool {
-	a.settingsMu.Lock()
-	defer a.settingsMu.Unlock()
-	return a.settings.NotificationsEnabled
+	a.applySettings()
 }
 
 func (a *App) ToggleWindow() {
@@ -937,7 +1031,7 @@ Expected: no errors.
 
 ```bash
 cd /Users/lihachev/Projects/vigil && git add app.go monitor/manager.go
-git commit -m "feat: wire Notifier, badge, Settings, GetHistory, ResumeSession into App"
+git commit -m "feat: wire Notifier, configurable badge, Settings, GetHistory, ResumeSession into App"
 ```
 
 ---
@@ -963,6 +1057,14 @@ export interface ProjectHistory {
   projectName: string;
   cwd: string;
   sessions: HistoricalSession[];
+}
+
+export interface Settings {
+  notifyConfirm: boolean;
+  notifyWaiting: boolean;
+  badgeConfirm: boolean;
+  badgeWaiting: boolean;
+  badgeActive: boolean;
 }
 ```
 
@@ -1329,12 +1431,16 @@ Replace the contents of `frontend/src/status-bar.ts`:
 ```typescript
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
+import type { Settings } from './types';
 
 @customElement('status-bar')
 export class StatusBar extends LitElement {
   @property({ type: Number }) count = 0;
   @state() private showSettings = false;
-  @state() private notificationsEnabled = true;
+  @state() private settings: Settings = {
+    notifyConfirm: true, notifyWaiting: false,
+    badgeConfirm: true, badgeWaiting: true, badgeActive: false,
+  };
 
   static styles = css`
     :host {
@@ -1363,6 +1469,15 @@ export class StatusBar extends LitElement {
     .settings-panel {
       border-top: 1px solid rgba(255,255,255,0.06);
       padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .section-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #6e7681;
     }
     .setting-row {
       display: flex;
@@ -1371,6 +1486,7 @@ export class StatusBar extends LitElement {
       font-size: 12px;
       color: #8b949e;
       cursor: pointer;
+      padding-left: 2px;
     }
     .setting-row:hover { color: #c9d1d9; }
     input[type="checkbox"] { cursor: pointer; accent-color: #58a6ff; }
@@ -1379,8 +1495,8 @@ export class StatusBar extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     // @ts-ignore
-    window.go?.main?.App?.GetNotificationsEnabled().then((v: boolean) => {
-      this.notificationsEnabled = v;
+    window.go?.main?.App?.GetSettings().then((s: Settings) => {
+      if (s) this.settings = s;
     });
   }
 
@@ -1388,15 +1504,16 @@ export class StatusBar extends LitElement {
     this.showSettings = !this.showSettings;
   }
 
-  private _toggleNotifications(e: Event) {
-    const enabled = (e.target as HTMLInputElement).checked;
-    this.notificationsEnabled = enabled;
+  private _update(key: keyof Settings, e: Event) {
+    const checked = (e.target as HTMLInputElement).checked;
+    this.settings = { ...this.settings, [key]: checked };
     // @ts-ignore
-    window.go?.main?.App?.SetNotificationsEnabled(enabled);
+    window.go?.main?.App?.UpdateSettings(this.settings);
   }
 
   render() {
     const label = this.count === 1 ? 'session' : 'sessions';
+    const s = this.settings;
     return html`
       <div class="bar">
         <span class="bar-label">${this.count} active ${label}</span>
@@ -1404,11 +1521,32 @@ export class StatusBar extends LitElement {
       </div>
       ${this.showSettings ? html`
         <div class="settings-panel">
+          <span class="section-label">Notifications</span>
           <label class="setting-row">
-            <input type="checkbox"
-                   .checked=${this.notificationsEnabled}
-                   @change=${this._toggleNotifications} />
-            Notifications for confirmations
+            <input type="checkbox" .checked=${s.notifyConfirm}
+                   @change=${(e: Event) => this._update('notifyConfirm', e)} />
+            Needs confirmation
+          </label>
+          <label class="setting-row">
+            <input type="checkbox" .checked=${s.notifyWaiting}
+                   @change=${(e: Event) => this._update('notifyWaiting', e)} />
+            Waiting for input
+          </label>
+          <span class="section-label">Badge</span>
+          <label class="setting-row">
+            <input type="checkbox" .checked=${s.badgeConfirm}
+                   @change=${(e: Event) => this._update('badgeConfirm', e)} />
+            Needs confirmation
+          </label>
+          <label class="setting-row">
+            <input type="checkbox" .checked=${s.badgeWaiting}
+                   @change=${(e: Event) => this._update('badgeWaiting', e)} />
+            Waiting for input
+          </label>
+          <label class="setting-row">
+            <input type="checkbox" .checked=${s.badgeActive}
+                   @change=${(e: Event) => this._update('badgeActive', e)} />
+            Active sessions
           </label>
         </div>
       ` : ''}
@@ -1448,8 +1586,12 @@ Launch with `wails dev` and verify:
 - [ ] Tray icon shows a red badge number when any session is in `confirm` or `waiting` state
 - [ ] Badge disappears when all sessions are `active` or `idle`
 - [ ] A macOS notification appears when a session enters `confirm` (test by observing the notification center)
-- [ ] Gear icon appears in status bar; clicking it shows/hides the toggle
-- [ ] Unchecking "Notifications" and re-triggering a confirm → no notification fires
+- [ ] Gear icon appears in status bar; clicking it shows/hides settings panel
+- [ ] Settings panel shows two sections: Notifications (2 checkboxes) and Badge (3 checkboxes)
+- [ ] Unchecking "Needs confirmation" under Notifications → no confirm notifications fire
+- [ ] Checking "Waiting for input" under Notifications → waiting notifications fire
+- [ ] Unchecking badge checkboxes → badge count changes accordingly
+- [ ] Settings persist after app restart (`~/.vigil/settings.json`)
 - [ ] Switching to History tab shows past sessions grouped by project
 - [ ] Collapsing and expanding groups works
 - [ ] Clicking a history session opens Terminal.app at the correct path with `claude --resume <id>`

@@ -94,26 +94,35 @@ type Notifier struct {
 
 `~/.vigil/settings.json`:
 ```json
-{ "notificationsEnabled": true }
+{
+  "notifyConfirm": true,
+  "notifyWaiting": false,
+  "badgeConfirm": true,
+  "badgeWaiting": true,
+  "badgeActive": false
+}
 ```
+
+Each setting controls which statuses trigger the corresponding feature:
+- **Notifications**: `notifyConfirm`, `notifyWaiting` — which statuses fire macOS notifications
+- **Badge**: `badgeConfirm`, `badgeWaiting`, `badgeActive` — which statuses count toward the tray badge number
 
 **Concurrency**: settings are read/written from two goroutines (poll goroutine reads; Wails handler goroutine writes). Use a `sync.Mutex` on a `Settings` struct in `app.go`:
 ```go
 type Settings struct {
-    NotificationsEnabled bool `json:"notificationsEnabled"`
-}
-type App struct {
-    ...
-    settingsMu sync.Mutex
-    settings   Settings
+    NotifyConfirm bool `json:"notifyConfirm"`
+    NotifyWaiting bool `json:"notifyWaiting"`
+    BadgeConfirm  bool `json:"badgeConfirm"`
+    BadgeWaiting  bool `json:"badgeWaiting"`
+    BadgeActive   bool `json:"badgeActive"`
 }
 ```
 
 **App methods** (both called by frontend via Wails):
-- `SetNotificationsEnabled(enabled bool)` — acquires mutex, updates `settings`, writes file, propagates to `Notifier.SetEnabled()`
-- `GetNotificationsEnabled() bool` — acquires mutex, returns current value
+- `GetSettings() Settings` — acquires mutex, returns current settings object
+- `UpdateSettings(s Settings)` — acquires mutex, saves to file, propagates to Notifier
 
-Loaded at startup from file; defaults to `true` if file absent.
+Loaded at startup from file; defaults: notifyConfirm=true, rest of notifications off; badgeConfirm+badgeWaiting=true, badgeActive=false.
 
 ---
 
@@ -176,8 +185,8 @@ type ProjectHistory struct {
 ### New App Methods
 - `GetHistory() []ProjectHistory`
 - `ResumeSession(cwd, sessionID string)`
-- `SetNotificationsEnabled(enabled bool)`
-- `GetNotificationsEnabled() bool`
+- `GetSettings() Settings`
+- `UpdateSettings(s Settings)`
 
 ---
 
@@ -203,8 +212,19 @@ Collapsible project groups:
 - Click on a session row → `ResumeSession(cwd, sessionId)`
 - `GetHistory()` called once when the tab is first opened; no auto-refresh (history is static)
 
-### Settings toggle
-`status-bar.ts` gains a small gear icon (⚙) on the right. Click shows an inline overlay with a single toggle: `Notifications for confirmations`. On mount, reads initial state via `GetNotificationsEnabled()`. Changes call `SetNotificationsEnabled(bool)`.
+### Settings panel
+`status-bar.ts` gains a small gear icon (⚙) on the right. Click shows an inline panel with two sections:
+
+**Notifications** (which statuses fire macOS notifications):
+- Needs confirmation (default: on)
+- Waiting for input (default: off)
+
+**Badge** (which statuses count toward tray icon badge):
+- Needs confirmation (default: on)
+- Waiting for input (default: on)
+- Active sessions (default: off)
+
+On mount, reads settings via `GetSettings()`. Each checkbox change calls `UpdateSettings(settings)`.
 
 ### New Frontend Types
 ```ts
@@ -244,9 +264,9 @@ user clicks history session
   → osascript opens new Terminal.app window, runs claude --resume <id>
   → switcher.ActivateSession for IDE (best-effort)
 
-user toggles notification setting
-  → App.SetNotificationsEnabled(bool)     → settingsMu.Lock, write file, update Notifier
-  → App.GetNotificationsEnabled() bool    → settingsMu.Lock, read current value
+user changes any setting
+  → App.UpdateSettings(settings)          → settingsMu.Lock, write file, apply to Notifier
+  → App.GetSettings() Settings            → settingsMu.Lock, read current values
 ```
 
 ---
