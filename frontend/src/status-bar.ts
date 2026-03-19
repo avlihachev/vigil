@@ -28,7 +28,7 @@ export class StatusBar extends LitElement {
     .gear {
       cursor: pointer;
       font-size: 13px;
-      color: #6e7681;
+      color: #8b949e;
       padding: 2px 4px;
       border-radius: 4px;
       transition: color 0.15s, background 0.15s;
@@ -43,22 +43,47 @@ export class StatusBar extends LitElement {
       gap: 8px;
     }
     .section-label {
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: #6e7681;
+      font-size: 11px;
+      color: var(--text-tertiary, #484f58);
     }
     .setting-row {
       display: flex;
       align-items: center;
       gap: 8px;
       font-size: 12px;
-      color: #8b949e;
+      color: var(--text-secondary, #8b949e);
       cursor: pointer;
       padding-left: 2px;
     }
     .setting-row:hover { color: #c9d1d9; }
-    input[type="checkbox"] { cursor: pointer; accent-color: #58a6ff; }
+    .toggle {
+      position: relative;
+      width: 20px;
+      height: 12px;
+      flex-shrink: 0;
+      border-radius: 6px;
+      background: #30363d;
+      border: 1px solid rgba(255,255,255,0.1);
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .toggle.on {
+      background: #58a6ff;
+      border-color: #58a6ff;
+    }
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 1px;
+      left: 1px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #fff;
+      transition: transform 0.2s;
+    }
+    .toggle.on::after {
+      transform: translateX(8px);
+    }
   `;
 
   connectedCallback() {
@@ -73,9 +98,8 @@ export class StatusBar extends LitElement {
     this.showSettings = !this.showSettings;
   }
 
-  private _update(key: keyof Settings, e: Event) {
-    const checked = (e.target as HTMLInputElement).checked;
-    this.settings = { ...this.settings, [key]: checked };
+  private _toggle(key: keyof Settings) {
+    this.settings = { ...this.settings, [key]: !this.settings[key] };
     // @ts-ignore
     window.go?.main?.App?.UpdateSettings(this.settings);
   }
@@ -91,30 +115,25 @@ export class StatusBar extends LitElement {
       ${this.showSettings ? html`
         <div class="settings-panel">
           <span class="section-label">Notifications</span>
-          <label class="setting-row">
-            <input type="checkbox" .checked=${s.notifyConfirm}
-                   @change=${(e: Event) => this._update('notifyConfirm', e)} />
+          <label class="setting-row" @click=${() => this._toggle('notifyConfirm')}>
+            <span class="toggle ${s.notifyConfirm ? 'on' : ''}"></span>
             Needs confirmation
           </label>
-          <label class="setting-row">
-            <input type="checkbox" .checked=${s.notifyWaiting}
-                   @change=${(e: Event) => this._update('notifyWaiting', e)} />
+          <label class="setting-row" @click=${() => this._toggle('notifyWaiting')}>
+            <span class="toggle ${s.notifyWaiting ? 'on' : ''}"></span>
             Waiting for input
           </label>
           <span class="section-label">Badge</span>
-          <label class="setting-row">
-            <input type="checkbox" .checked=${s.badgeConfirm}
-                   @change=${(e: Event) => this._update('badgeConfirm', e)} />
+          <label class="setting-row" @click=${() => this._toggle('badgeConfirm')}>
+            <span class="toggle ${s.badgeConfirm ? 'on' : ''}"></span>
             Needs confirmation
           </label>
-          <label class="setting-row">
-            <input type="checkbox" .checked=${s.badgeWaiting}
-                   @change=${(e: Event) => this._update('badgeWaiting', e)} />
+          <label class="setting-row" @click=${() => this._toggle('badgeWaiting')}>
+            <span class="toggle ${s.badgeWaiting ? 'on' : ''}"></span>
             Waiting for input
           </label>
-          <label class="setting-row">
-            <input type="checkbox" .checked=${s.badgeActive}
-                   @change=${(e: Event) => this._update('badgeActive', e)} />
+          <label class="setting-row" @click=${() => this._toggle('badgeActive')}>
+            <span class="toggle ${s.badgeActive ? 'on' : ''}"></span>
             Active sessions
           </label>
         </div>

@@ -151,7 +151,7 @@ void traySetBadge(int count) {
         CGFloat badgeW = MAX(textSize.width + 4, 11);
         NSRect badgeRect = NSMakeRect(size.width - badgeW, size.height - 11, badgeW, 11);
 
-        [[NSColor colorWithRed:0.94 green:0.27 blue:0.27 alpha:1.0] setFill];
+        [[NSColor colorWithRed:0.94 green:0.50 blue:0.0 alpha:1.0] setFill];
         NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:badgeRect xRadius:3 yRadius:3];
         [path fill];
 
