@@ -46,3 +46,11 @@ func (m *Manager) Collect() []Session {
 	}
 	return result
 }
+
+func (m *Manager) GetIDESource(cwd string) string {
+	src := m.ide.GetSource(cwd)
+	if src == "Terminal" {
+		return ""
+	}
+	return src
+}

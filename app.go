@@ -2,8 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	"vigil/monitor"
@@ -13,20 +18,42 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+type Settings struct {
+	NotifyConfirm bool `json:"notifyConfirm"`
+	NotifyWaiting bool `json:"notifyWaiting"`
+	BadgeConfirm  bool `json:"badgeConfirm"`
+	BadgeWaiting  bool `json:"badgeWaiting"`
+	BadgeActive   bool `json:"badgeActive"`
+}
+
 type App struct {
-	ctx     context.Context
-	manager *monitor.Manager
-	stop    chan struct{}
-	visible bool
+	ctx          context.Context
+	manager      *monitor.Manager
+	history      *monitor.HistoryScanner
+	notifier     *monitor.Notifier
+	stop         chan struct{}
+	visible      bool
+	prevSessions []monitor.Session
+	settingsMu   sync.Mutex
+	settings     Settings
+	settingsPath string
 }
 
 func NewApp() *App {
 	homeDir, _ := os.UserHomeDir()
 	claudeDir := filepath.Join(homeDir, ".claude")
-	return &App{
-		manager: monitor.NewManager(claudeDir),
-		stop:    make(chan struct{}),
+	vigilDir := filepath.Join(homeDir, ".vigil")
+	os.MkdirAll(vigilDir, 0755)
+
+	app := &App{
+		manager:      monitor.NewManager(claudeDir),
+		history:      monitor.NewHistoryScanner(claudeDir),
+		notifier:     monitor.NewNotifier(),
+		stop:         make(chan struct{}),
+		settingsPath: filepath.Join(vigilDir, "settings.json"),
 	}
+	app.loadSettings()
+	return app
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -65,6 +92,14 @@ func (a *App) pollLoop() {
 
 func (a *App) emitSessions() {
 	sessions := a.manager.Collect()
+	a.notifier.Check(a.prevSessions, sessions)
+
+	a.settingsMu.Lock()
+	badge := monitor.CountBadge(sessions, a.settings.BadgeConfirm, a.settings.BadgeWaiting, a.settings.BadgeActive)
+	a.settingsMu.Unlock()
+	tray.SetBadge(badge)
+
+	a.prevSessions = sessions
 	runtime.EventsEmit(a.ctx, "sessions:updated", sessions)
 }
 
@@ -73,7 +108,7 @@ func (a *App) GetSessions() []monitor.Session {
 }
 
 func (a *App) OpenSession(source string, cwd string, pid int) {
-	a.HideWindow() // hide popup before switching so it doesn't block focus
+	a.HideWindow()
 	switcher.ActivateSession(source, cwd, pid)
 }
 
@@ -86,7 +121,6 @@ func (a *App) ToggleWindow() {
 }
 
 func (a *App) ShowWindow() {
-	// position near top-right of screen (menubar area)
 	screens, _ := runtime.ScreenGetAll(a.ctx)
 	if len(screens) > 0 {
 		primary := screens[0]
@@ -94,15 +128,79 @@ func (a *App) ShowWindow() {
 		y := 30
 		runtime.WindowSetPosition(a.ctx, x, y)
 	}
-	// orderFront: shows window without activating our app,
-	// so the user's previous app (e.g. Ghostty) keeps focus
 	tray.ShowPopup()
 	a.visible = true
 }
 
 func (a *App) HideWindow() {
-	// orderOut: hides window without triggering app-deactivation,
-	// so macOS doesn't switch focus back to our app's "previous" app
 	tray.HidePopup()
 	a.visible = false
+}
+
+func (a *App) GetHistory() []monitor.ProjectHistory {
+	active := a.manager.Collect()
+	cwds := make([]string, 0, len(active))
+	for _, s := range active {
+		cwds = append(cwds, s.CWD)
+	}
+	return a.history.ScanHistory(cwds)
+}
+
+func (a *App) ResumeSession(cwd string, sessionID string) {
+	escapedCWD := strings.ReplaceAll(cwd, `"`, `\"`)
+	escapedID := strings.ReplaceAll(sessionID, `"`, `\"`)
+	script := fmt.Sprintf(
+		`tell application "Terminal"
+	do script "cd \"%s\" && claude --resume \"%s\""
+	activate
+end tell`, escapedCWD, escapedID)
+	exec.Command("osascript", "-e", script).Run()
+
+	source := a.manager.GetIDESource(cwd)
+	if source != "" {
+		switcher.ActivateSession(source, cwd, 0)
+	}
+}
+
+func (a *App) GetSettings() Settings {
+	a.settingsMu.Lock()
+	defer a.settingsMu.Unlock()
+	return a.settings
+}
+
+func (a *App) UpdateSettings(s Settings) {
+	a.settingsMu.Lock()
+	a.settings = s
+	data, _ := json.MarshalIndent(a.settings, "", "  ")
+	path := a.settingsPath
+	a.settingsMu.Unlock()
+
+	os.WriteFile(path, data, 0644)
+	a.applySettings()
+}
+
+func defaultSettings() Settings {
+	return Settings{
+		NotifyConfirm: true,
+		NotifyWaiting: false,
+		BadgeConfirm:  true,
+		BadgeWaiting:  true,
+		BadgeActive:   false,
+	}
+}
+
+func (a *App) loadSettings() {
+	a.settingsMu.Lock()
+	defer a.settingsMu.Unlock()
+	a.settings = defaultSettings()
+	data, err := os.ReadFile(a.settingsPath)
+	if err == nil {
+		json.Unmarshal(data, &a.settings)
+	}
+	a.applySettings()
+}
+
+func (a *App) applySettings() {
+	a.notifier.SetNotifyConfirm(a.settings.NotifyConfirm)
+	a.notifier.SetNotifyWaiting(a.settings.NotifyWaiting)
 }
