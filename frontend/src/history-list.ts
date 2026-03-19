@@ -25,11 +25,11 @@ export class HistoryList extends LitElement {
       align-items: center;
       justify-content: center;
       height: 100%;
-      color: #8b949e;
+      color: var(--text-secondary);
       font-size: 13px;
     }
     .group {
-      border-bottom: 1px solid rgba(255,255,255,0.06);
+      border-bottom: 1px solid var(--border);
     }
     .group-header {
       display: flex;
@@ -39,17 +39,17 @@ export class HistoryList extends LitElement {
       cursor: pointer;
       transition: background 0.15s;
     }
-    .group-header:hover { background: rgba(255,255,255,0.04); }
+    .group-header:hover { background: var(--hover); }
     .chevron {
       font-size: 10px;
-      color: #6e7681;
+      color: var(--text-tertiary);
       width: 10px;
       flex-shrink: 0;
     }
     .group-name {
       font-size: 12px;
       font-weight: 600;
-      color: #e6edf3;
+      color: var(--text);
       flex: 1;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -57,7 +57,7 @@ export class HistoryList extends LitElement {
     }
     .group-path {
       font-size: 10px;
-      color: #6e7681;
+      color: var(--text-secondary);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -71,9 +71,9 @@ export class HistoryList extends LitElement {
       cursor: pointer;
       transition: background 0.15s;
     }
-    .session-row:hover { background: rgba(255,255,255,0.04); }
+    .session-row:hover { background: var(--hover); }
     .tree-char {
-      color: #30363d;
+      color: var(--text-tertiary);
       font-family: monospace;
       font-size: 11px;
       width: 10px;
@@ -81,7 +81,7 @@ export class HistoryList extends LitElement {
     }
     .session-name {
       font-size: 11px;
-      color: #8b949e;
+      color: var(--text-secondary);
       flex: 1;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -90,7 +90,7 @@ export class HistoryList extends LitElement {
     }
     .session-age {
       font-size: 10px;
-      color: #6e7681;
+      color: var(--text-tertiary);
       white-space: nowrap;
       flex-shrink: 0;
     }
