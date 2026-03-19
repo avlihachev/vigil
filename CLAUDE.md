@@ -51,7 +51,7 @@ Vigil is a macOS menubar app built with **Wails v2** (Go backend + Lit/TypeScrip
 - **No dock icon** — `NSApplicationActivationPolicyAccessory` set in `tray_init` after Wails starts.
 - **Window visibility** — uses `NSWindow orderFront/orderOut` (not `NSApp activate/hide`) to avoid macOS stealing focus from the user's terminal.
 - **Status detection** — based on JSONL file modification time (idle if >5 min stale) + last assistant message type (text-only → waiting, tool_use pending → confirm).
-- **JSONL lookup** — tries `sessionId.jsonl` first; falls back to newest `.jsonl` in the project dir to handle resumed sessions whose file name differs from the current session ID.
+- **JSONL lookup** — for single-session CWDs: `FindJSONL` tries `sessionId.jsonl` first, falls back to newest `.jsonl`. For sibling sessions (multiple sessions sharing the same CWD): `Collect()` groups by CWD, does exact filename match first, then greedy 1:1 assignment (sessions sorted by `startedAt` desc, JSONLs by `modTime` desc). `ParseAllFromPath` reads each resolved JSONL once to extract actions, name, tokens, and modTime in a single pass.
 - **Terminal detection** — walks the process tree (up to 6 levels) via `ps -o ppid=,comm=` to identify the terminal emulator.
 
 ### Window switching (`switcher/`)
@@ -78,6 +78,16 @@ Uses the **macOS Accessibility C API** directly from CGo (`script_darwin.m`), no
 - `NSRunningApplication.activateWithOptions:` alone doesn't reliably bring windows to front from an accessory app. Combine with `AXRaiseAction` for the specific window.
 - Production builds must be signed with a stable identifier (`codesign --sign - --identifier com.vigil.app`) so Accessibility permissions persist across rebuilds. `wails dev` creates ad-hoc `a.out` signatures that macOS invalidates on each build.
 - `PromptAccessibility()` calls `AXIsProcessTrustedWithOptions` with `kAXTrustedCheckOptionPrompt` at startup to show the system dialog.
+
+### Settings & notifications
+
+`status-bar` component (bottom of popup) has a gear toggle that expands a settings panel. Settings are persisted to `~/.vigil/settings.json` and applied immediately.
+
+**Controls (custom pill toggles, not system checkboxes):**
+- **Notifications** — desktop notifications for `confirm` and `waiting` states
+- **Badge** — menubar icon badge count for `confirm`, `waiting`, `active` states
+
+**Badge rendering** (`tray_darwin.m` `traySetBadge`) — draws a base `◉` symbol + rounded-rect badge overlay with count. Badge color is muted orange (`#f08000`), matching the confirm status color in the UI.
 
 ### Wails bindings
 
