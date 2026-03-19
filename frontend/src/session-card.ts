@@ -190,7 +190,7 @@ export class SessionCard extends LitElement {
     this.addEventListener('click', () => {
       if (this.session) {
         // @ts-ignore
-        window.go?.main?.App?.OpenSession(this.session.source, this.session.cwd);
+        window.go?.main?.App?.OpenSession(this.session.source, this.session.cwd, this.session.pid);
       }
     });
   }

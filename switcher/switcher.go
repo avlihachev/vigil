@@ -2,89 +2,116 @@ package switcher
 
 import (
 	"fmt"
+	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 )
 
-func ActivateSession(source string, cwd string) error {
+// cwdToFileURL converts "/Users/foo" to "file:///Users/foo/" for AXDocument matching
+func cwdToFileURL(cwd string) string {
+	u := url.URL{Scheme: "file", Path: cwd}
+	s := u.String()
+	if !strings.HasSuffix(s, "/") {
+		s += "/"
+	}
+	return s
+}
+
+func findCodeCLI() string {
+	paths := []string{
+		"/usr/local/bin/code",
+		"/opt/homebrew/bin/code",
+		"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
+	}
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	if p, err := exec.LookPath("code"); err == nil {
+		return p
+	}
+	return ""
+}
+
+func findCursorCLI() string {
+	paths := []string{
+		"/usr/local/bin/cursor",
+		"/opt/homebrew/bin/cursor",
+		"/Applications/Cursor.app/Contents/Resources/app/bin/cursor",
+	}
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	if p, err := exec.LookPath("cursor"); err == nil {
+		return p
+	}
+	return ""
+}
+
+func ActivateSession(source string, cwd string, pid int) error {
 	folderName := filepath.Base(cwd)
+	cwdURL := cwdToFileURL(cwd)
+
 	switch source {
 	case "VSCode":
-		// System Events process name is "Code"; app name for fallback activate is "Visual Studio Code"
-		return activateApp("Code", "Visual Studio Code", folderName, func() error {
-			return exec.Command("code", cwd).Run()
-		})
+		// AX API first — handles workspaces where title differs from folder name
+		if activateByAX("Code", "Visual Studio Code", cwdURL, folderName) == nil {
+			return nil
+		}
+		if codePath := findCodeCLI(); codePath != "" {
+			exec.Command(codePath, cwd).Run()
+			exec.Command("open", "-a", "Visual Studio Code").Run()
+		}
+		return nil
 	case "Cursor":
-		return activateApp("Cursor", "Cursor", folderName, func() error {
-			return exec.Command("cursor", cwd).Run()
-		})
+		if activateByAX("Cursor", "Cursor", cwdURL, folderName) == nil {
+			return nil
+		}
+		if cursorPath := findCursorCLI(); cursorPath != "" {
+			exec.Command(cursorPath, cwd).Run()
+			exec.Command("open", "-a", "Cursor").Run()
+		}
+		return nil
 	default:
-		// source is the terminal display name; proc name matches in System Events
 		proc := terminalProcessName(source)
-		return activateApp(proc, proc, folderName, nil)
+		return activateByAX(proc, source, cwdURL, folderName)
 	}
 }
 
-// activateApp raises the target app window. Strategy:
-//  1. System Events AXRaise on the best matching window (needs Accessibility permission).
-//  2. If permission denied → fall back to `tell application X to activate` (no permissions needed).
-//  3. If app not running → call openFallback (e.g. open a new window).
-func activateApp(procName, appName, folderName string, openFallback func() error) error {
-	// AppleScript `is` comparison is case-insensitive by default,
-	// so procName can be any case and will still match the running process.
-	script := fmt.Sprintf(`
-tell application "System Events"
-	set targetProc to missing value
-	repeat with p in (every process)
-		if name of p is "%s" then
-			set targetProc to p
-			exit repeat
-		end if
-	end repeat
-	if targetProc is missing value then
-		return "not_running"
-	end if
-	tell targetProc
-		set didRaise to false
-		repeat with w in windows
-			if name of w contains "%s" then
-				perform action "AXRaise" of w
-				set frontmost to true
-				set didRaise to true
-				exit repeat
-			end if
-		end repeat
-		if not didRaise then
-			set frontmost to true
-			if (count of windows) > 0 then
-				perform action "AXRaise" of window 1
-			end if
-		end if
-	end tell
-end tell
-return "done"`, procName, folderName)
-
-	out, err := exec.Command("osascript", "-e", script).Output()
-	result := strings.TrimSpace(string(out))
-
-	if err == nil && result == "done" {
-		return nil
-	}
-
-	if result == "not_running" {
-		if openFallback != nil {
-			return openFallback()
-		}
+// activateByAX uses the Accessibility C API to find and raise a window.
+// docMatch is checked against AXDocument; titleMatch against window title.
+func activateByAX(procName, appName, docMatch, titleMatch string) error {
+	appPID := findAppPID(procName)
+	if appPID == 0 {
 		return fmt.Errorf("%s is not running", appName)
 	}
 
-	// Accessibility permission denied or any other error — simple activate (always works)
-	simpleScript := fmt.Sprintf(`tell application "%s" to activate`, appName)
-	return exec.Command("osascript", "-e", simpleScript).Run()
+	result := raiseWindow(appPID, docMatch, titleMatch)
+	if result > 0 {
+		return nil
+	}
+	if result == 0 {
+		return fmt.Errorf("window not found")
+	}
+
+	// result == -1: no accessibility — bring app to front at least
+	exec.Command("open", "-a", appName).Run()
+	return nil
 }
 
-// terminalProcessName maps display name → System Events process name (matches CFBundleName).
+func isTerminalComm(comm string) bool {
+	switch comm {
+	case "ghostty", "iterm2", "terminal", "warp", "alacritty", "kitty":
+		return true
+	}
+	return false
+}
+
 func terminalProcessName(source string) string {
 	m := map[string]string{
 		"Ghostty":   "Ghostty",

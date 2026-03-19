@@ -10,8 +10,8 @@ export function HideWindow() {
   return window['go']['main']['App']['HideWindow']();
 }
 
-export function OpenSession(arg1, arg2) {
-  return window['go']['main']['App']['OpenSession'](arg1, arg2);
+export function OpenSession(arg1, arg2, arg3) {
+  return window['go']['main']['App']['OpenSession'](arg1, arg2, arg3);
 }
 
 export function ShowWindow() {

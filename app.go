@@ -32,6 +32,7 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	go a.pollLoop()
+	switcher.PromptAccessibility()
 	tray.Init("◉", "Vigil", a.ToggleWindow, func() {
 		runtime.Quit(a.ctx)
 	})
@@ -71,9 +72,9 @@ func (a *App) GetSessions() []monitor.Session {
 	return a.manager.Collect()
 }
 
-func (a *App) OpenSession(source string, cwd string) {
+func (a *App) OpenSession(source string, cwd string, pid int) {
 	a.HideWindow() // hide popup before switching so it doesn't block focus
-	switcher.ActivateSession(source, cwd)
+	switcher.ActivateSession(source, cwd, pid)
 }
 
 func (a *App) ToggleWindow() {

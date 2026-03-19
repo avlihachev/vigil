@@ -110,8 +110,9 @@ void tray_show_popup(void) {
 }
 
 // hide popup via orderOut (not [NSApp hide:]) so macOS doesn't auto-switch to Ghostty
+// dispatch_sync ensures the window is hidden before ActivateSession runs its AppleScript
 void tray_hide_popup(void) {
-    dispatch_async(dispatch_get_main_queue(), ^{
+    dispatch_sync(dispatch_get_main_queue(), ^{
         for (NSWindow *win in [NSApp windows]) {
             [win orderOut:nil];
             break;

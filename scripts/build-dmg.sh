@@ -4,6 +4,12 @@ echo "Building universal binary..."
 wails build -platform darwin/universal -clean
 
 APP="build/bin/Vigil.app"
+BIN="$APP/Contents/MacOS/vigil"
+BUNDLE_ID="com.vigil.app"
+
+echo "Signing with identifier $BUNDLE_ID..."
+codesign --force --sign - --identifier "$BUNDLE_ID" "$BIN"
+codesign --force --sign - --identifier "$BUNDLE_ID" "$APP"
 DMG="dist/Vigil.dmg"
 STAGE="/tmp/vigil-dmg-stage"
 
