@@ -241,7 +241,7 @@ func (p *ActivityParser) findJSONL(sessionID string, cwd string) string {
 	}
 
 	// for resumed sessions the JSONL filename differs from sessionId —
-	// fall back to the most recently modified JSONL in the project dir
+	// scan last lines of each JSONL to find one containing this sessionId
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return ""
@@ -252,16 +252,54 @@ func (p *ActivityParser) findJSONL(sessionID string, cwd string) string {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
 			continue
 		}
+		path := filepath.Join(dir, e.Name())
 		info, err := e.Info()
 		if err != nil {
 			continue
 		}
 		if t := info.ModTime().UnixMilli(); t > newestMod {
 			newestMod = t
-			newest = filepath.Join(dir, e.Name())
+			newest = path
+		}
+		// check if this file contains entries for our sessionId
+		if matchesSessionID(path, sessionID) {
+			return path
 		}
 	}
+	// no content match — fall back to newest for brand-new sessions
 	return newest
+}
+
+// matchesSessionID reads the last ~4KB of a JSONL file and checks
+// if any entry contains the given sessionId
+func matchesSessionID(path, sessionID string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+
+	// read last 4KB — enough for a few JSONL lines
+	offset := info.Size() - 4096
+	if offset < 0 {
+		offset = 0
+	}
+	f.Seek(offset, 0)
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
+	needle := `"sessionId":"` + sessionID + `"`
+	for scanner.Scan() {
+		if strings.Contains(scanner.Text(), needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseTimestamp(s string) int64 {
