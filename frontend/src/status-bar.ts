@@ -29,15 +29,15 @@ export class StatusBar extends LitElement {
     .gear {
       cursor: pointer;
       font-size: 13px;
-      color: #8b949e;
+      color: var(--text-secondary);
       padding: 2px 4px;
       border-radius: 4px;
       transition: color 0.15s, background 0.15s;
       user-select: none;
     }
-    .gear:hover { color: #c9d1d9; background: rgba(255,255,255,0.06); }
+    .gear:hover { color: var(--text); background: var(--hover); }
     .settings-panel {
-      border-top: 1px solid rgba(255,255,255,0.06);
+      border-top: 1px solid var(--border);
       padding: 10px 14px;
       display: flex;
       flex-direction: column;
@@ -56,7 +56,7 @@ export class StatusBar extends LitElement {
       cursor: pointer;
       padding-left: 2px;
     }
-    .setting-row:hover { color: #c9d1d9; }
+    .setting-row:hover { color: var(--text); }
     .toggle {
       position: relative;
       width: 20px;

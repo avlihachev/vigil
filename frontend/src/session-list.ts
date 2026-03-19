@@ -23,7 +23,7 @@ export class SessionList extends LitElement {
     }
     .tabs {
       display: flex;
-      border-bottom: 1px solid rgba(255,255,255,0.08);
+      border-bottom: 1px solid var(--border);
       flex-shrink: 0;
     }
     .tab {
@@ -31,17 +31,17 @@ export class SessionList extends LitElement {
       padding: 7px 0;
       text-align: center;
       font-size: 12px;
-      color: #8b949e;
+      color: var(--text-secondary);
       cursor: pointer;
       transition: color 0.15s, border-bottom 0.15s;
       border-bottom: 2px solid transparent;
       user-select: none;
     }
     .tab.active-tab {
-      color: #e6edf3;
+      color: var(--text);
       border-bottom: 2px solid #58a6ff;
     }
-    .tab:hover:not(.active-tab) { color: #c9d1d9; }
+    .tab:hover:not(.active-tab) { color: var(--text); }
     .list {
       flex: 1;
       overflow-y: auto;

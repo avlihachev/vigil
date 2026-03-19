@@ -34,13 +34,13 @@ export class SessionCard extends LitElement {
   static styles = css`
     :host {
       display: block;
-      border-bottom: 1px solid rgba(255,255,255,0.06);
+      border-bottom: 1px solid var(--border);
       cursor: pointer;
       transition: background 0.15s;
       position: relative;
     }
     :host(:hover) {
-      background: rgba(255,255,255,0.04);
+      background: var(--hover);
     }
     .accent {
       position: absolute;
@@ -98,14 +98,14 @@ export class SessionCard extends LitElement {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      color: #e6edf3;
+      color: var(--text);
     }
     .source {
       font-size: 10px;
       padding: 1px 6px;
       border-radius: 10px;
-      background: rgba(255,255,255,0.08);
-      color: #8b949e;
+      background: var(--border);
+      color: var(--text-secondary);
       white-space: nowrap;
       flex-shrink: 0;
     }
@@ -126,14 +126,14 @@ export class SessionCard extends LitElement {
     }
     .duration {
       font-size: 11px;
-      color: #6e7681;
+      color: var(--text-secondary);
       white-space: nowrap;
       flex-shrink: 0;
     }
     .slug {
       font-size: 10px;
       margin: 2px 0 0 15px;
-      color: #6e7681;
+      color: var(--text-secondary);
       font-style: italic;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -142,7 +142,7 @@ export class SessionCard extends LitElement {
     .path {
       font-size: 11px;
       margin: 1px 0 0 15px;
-      color: #8b949e;
+      color: var(--text-secondary);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -158,7 +158,7 @@ export class SessionCard extends LitElement {
       font-size: 11px;
     }
     .tree-char {
-      color: #30363d;
+      color: var(--text-tertiary);
       font-family: monospace;
       width: 10px;
       flex-shrink: 0;
@@ -174,7 +174,7 @@ export class SessionCard extends LitElement {
       flex-shrink: 0;
     }
     .action-label {
-      color: #8b949e;
+      color: var(--text-secondary);
     }
     .action-line.is-confirm .action-label {
       color: #f08000;
