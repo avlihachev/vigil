@@ -19,11 +19,12 @@ import (
 )
 
 type Settings struct {
-	NotifyConfirm bool `json:"notifyConfirm"`
-	NotifyWaiting bool `json:"notifyWaiting"`
-	BadgeConfirm  bool `json:"badgeConfirm"`
-	BadgeWaiting  bool `json:"badgeWaiting"`
-	BadgeActive   bool `json:"badgeActive"`
+	NotifyConfirm   bool   `json:"notifyConfirm"`
+	NotifyWaiting   bool   `json:"notifyWaiting"`
+	BadgeConfirm    bool   `json:"badgeConfirm"`
+	BadgeWaiting    bool   `json:"badgeWaiting"`
+	BadgeActive     bool   `json:"badgeActive"`
+	LastUpdateCheck string `json:"lastUpdateCheck,omitempty"`
 }
 
 type App struct {
@@ -31,6 +32,8 @@ type App struct {
 	manager      *monitor.Manager
 	history      *monitor.HistoryScanner
 	notifier     *monitor.Notifier
+	updater      *monitor.Updater
+	updateInfo   *monitor.UpdateInfo
 	stop         chan struct{}
 	visible      bool
 	prevSessions []monitor.Session
@@ -52,6 +55,7 @@ func NewApp() *App {
 		stop:         make(chan struct{}),
 		settingsPath: filepath.Join(vigilDir, "settings.json"),
 	}
+	app.updater = monitor.NewUpdater(Version, "https://api.github.com/repos/avlihachev/vigil/releases/latest")
 	app.loadSettings()
 	return app
 }
@@ -63,6 +67,9 @@ func (a *App) startup(ctx context.Context) {
 	tray.Init("◉", "Vigil", a.ToggleWindow, func() {
 		runtime.Quit(a.ctx)
 	})
+	if a.needsUpdateCheck() {
+		go a.checkForUpdate()
+	}
 
 	// hide window when it loses focus
 	runtime.EventsOn(a.ctx, "window:blur", func(optionalData ...interface{}) {
@@ -84,6 +91,9 @@ func (a *App) pollLoop() {
 		select {
 		case <-ticker.C:
 			a.emitSessions()
+			if a.updateInfo == nil && a.needsUpdateCheck() {
+				go a.checkForUpdate()
+			}
 		case <-a.stop:
 			return
 		}
@@ -160,6 +170,41 @@ end tell`, escapedCWD, escapedID)
 	if source != "" {
 		switcher.ActivateSession(source, cwd, 0)
 	}
+}
+
+func (a *App) checkForUpdate() {
+	info, err := a.updater.Check()
+	if err != nil || info == nil {
+		return
+	}
+	a.updateInfo = info
+	runtime.EventsEmit(a.ctx, "update:available", info)
+
+	a.settingsMu.Lock()
+	a.settings.LastUpdateCheck = time.Now().Format(time.RFC3339)
+	data, _ := json.MarshalIndent(a.settings, "", "  ")
+	path := a.settingsPath
+	a.settingsMu.Unlock()
+	os.WriteFile(path, data, 0644)
+}
+
+func (a *App) needsUpdateCheck() bool {
+	a.settingsMu.Lock()
+	last := a.settings.LastUpdateCheck
+	a.settingsMu.Unlock()
+
+	if last == "" {
+		return true
+	}
+	t, err := time.Parse(time.RFC3339, last)
+	if err != nil {
+		return true
+	}
+	return time.Since(t) > 7*24*time.Hour
+}
+
+func (a *App) OpenURL(url string) {
+	runtime.BrowserOpenURL(a.ctx, url)
 }
 
 func (a *App) GetSettings() Settings {
