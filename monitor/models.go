@@ -66,3 +66,24 @@ func FormatDuration(ms int64) string {
 	}
 	return fmt.Sprintf("%dm", minutes)
 }
+
+func CountBadge(sessions []Session, confirm, waiting, active bool) int {
+	n := 0
+	for _, s := range sessions {
+		switch s.Status {
+		case StatusConfirm:
+			if confirm {
+				n++
+			}
+		case StatusWaiting:
+			if waiting {
+				n++
+			}
+		case StatusActive:
+			if active {
+				n++
+			}
+		}
+	}
+	return n
+}
