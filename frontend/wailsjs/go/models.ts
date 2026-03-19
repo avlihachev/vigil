@@ -6,6 +6,7 @@ export namespace main {
 	    badgeConfirm: boolean;
 	    badgeWaiting: boolean;
 	    badgeActive: boolean;
+	    lastUpdateCheck?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -18,6 +19,7 @@ export namespace main {
 	        this.badgeConfirm = source["badgeConfirm"];
 	        this.badgeWaiting = source["badgeWaiting"];
 	        this.badgeActive = source["badgeActive"];
+	        this.lastUpdateCheck = source["lastUpdateCheck"];
 	    }
 	}
 

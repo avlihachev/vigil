@@ -9,9 +9,13 @@ export function GetSessions():Promise<Array<monitor.Session>>;
 
 export function GetSettings():Promise<main.Settings>;
 
+export function GetVersion():Promise<string>;
+
 export function HideWindow():Promise<void>;
 
 export function OpenSession(arg1:string,arg2:string,arg3:number):Promise<void>;
+
+export function OpenURL(arg1:string):Promise<void>;
 
 export function ResumeSession(arg1:string,arg2:string):Promise<void>;
 

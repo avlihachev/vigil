@@ -14,12 +14,20 @@ export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
+export function GetVersion() {
+  return window['go']['main']['App']['GetVersion']();
+}
+
 export function HideWindow() {
   return window['go']['main']['App']['HideWindow']();
 }
 
 export function OpenSession(arg1, arg2, arg3) {
   return window['go']['main']['App']['OpenSession'](arg1, arg2, arg3);
+}
+
+export function OpenURL(arg1) {
+  return window['go']['main']['App']['OpenURL'](arg1);
 }
 
 export function ResumeSession(arg1, arg2) {
