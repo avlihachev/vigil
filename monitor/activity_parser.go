@@ -163,17 +163,17 @@ func (p *ActivityParser) ParseTokens(sessionID string, cwd string) (in, out int6
 	if jsonlPath == "" {
 		return
 	}
-	f, err := os.Open(jsonlPath)
+	lines, err := readAllLines(jsonlPath)
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	return parseTokensFromLines(lines)
+}
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
-	for scanner.Scan() {
+func parseTokensFromLines(lines []string) (in, out int64) {
+	for _, line := range lines {
 		var entry jsonlEntry
-		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			continue
 		}
 		if entry.Type == "assistant" && entry.Message != nil && entry.Message.Usage != nil {
@@ -182,6 +182,21 @@ func (p *ActivityParser) ParseTokens(sessionID string, cwd string) (in, out int6
 		}
 	}
 	return
+}
+
+func readAllLines(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	var lines []string
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
+	for sc.Scan() {
+		lines = append(lines, sc.Text())
+	}
+	return lines, nil
 }
 
 // ParseName returns the session display name: custom title if set, otherwise slug.
