@@ -174,18 +174,20 @@ end tell`, escapedCWD, escapedID)
 
 func (a *App) checkForUpdate() {
 	info, err := a.updater.Check()
-	if err != nil || info == nil {
-		return
-	}
-	a.updateInfo = info
-	runtime.EventsEmit(a.ctx, "update:available", info)
 
+	// save timestamp regardless of result to avoid re-checking every 3s
 	a.settingsMu.Lock()
 	a.settings.LastUpdateCheck = time.Now().Format(time.RFC3339)
 	data, _ := json.MarshalIndent(a.settings, "", "  ")
 	path := a.settingsPath
 	a.settingsMu.Unlock()
 	os.WriteFile(path, data, 0644)
+
+	if err != nil || info == nil {
+		return
+	}
+	a.updateInfo = info
+	runtime.EventsEmit(a.ctx, "update:available", info)
 }
 
 func (a *App) needsUpdateCheck() bool {
