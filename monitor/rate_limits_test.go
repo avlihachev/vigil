@@ -63,7 +63,7 @@ func TestRateLimitReader_BridgeFallback(t *testing.T) {
 	}
 }
 
-func TestRateLimitReader_StaleFile(t *testing.T) {
+func TestRateLimitReader_OldFile(t *testing.T) {
 	dir := t.TempDir()
 	claudeDir := filepath.Join(dir, "claude")
 	nativeDir := filepath.Join(claudeDir, "cache")
@@ -84,8 +84,11 @@ func TestRateLimitReader_StaleFile(t *testing.T) {
 
 	reader := NewRateLimitReader(claudeDir, vigilDir)
 	rl := reader.Read()
-	if rl != nil {
-		t.Error("expected nil for stale file")
+	if rl == nil {
+		t.Fatal("expected rate limits even from old file")
+	}
+	if rl.FiveHour == nil || rl.FiveHour.UsedPercentage != 42 {
+		t.Errorf("expected 5h=42%%, got %+v", rl.FiveHour)
 	}
 }
 

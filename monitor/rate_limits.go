@@ -62,16 +62,6 @@ func (r *RateLimitReader) Invalidate() {
 }
 
 func (r *RateLimitReader) tryRead(path string) *RateLimits {
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil
-	}
-
-	// stale if file older than 5 minutes
-	if time.Since(info.ModTime()) > 5*time.Minute {
-		return nil
-	}
-
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
