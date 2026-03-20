@@ -8,11 +8,14 @@ import (
 
 const bridgeScript = `#!/bin/bash
 input=$(cat)
-echo "$input" | jq '{
-  five_hour: .rate_limits.five_hour,
-  seven_day: .rate_limits.seven_day,
+new=$(echo "$input" | jq -c '.rate_limits // empty' 2>/dev/null)
+[ -z "$new" ] && exit 0
+old=$(cat ~/.vigil/rate-limits.json 2>/dev/null)
+echo "$old" | jq --argjson n "$new" '{
+  five_hour: (if ($n.five_hour.used_percentage // 0) >= (.five_hour.used_percentage // 0) then $n.five_hour else .five_hour end) | .used_percentage |= floor,
+  seven_day: (if ($n.seven_day.used_percentage // 0) >= (.seven_day.used_percentage // 0) then $n.seven_day else .seven_day end) | .used_percentage |= floor,
   updated_at: (now | todate)
-}' > ~/.vigil/rate-limits.json 2>/dev/null
+}' > ~/.vigil/rate-limits.json.tmp 2>/dev/null && mv ~/.vigil/rate-limits.json.tmp ~/.vigil/rate-limits.json
 `
 
 func InstallBridge(vigilDir string) error {
