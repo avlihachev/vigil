@@ -24,6 +24,7 @@ type Settings struct {
 	BadgeConfirm    bool   `json:"badgeConfirm"`
 	BadgeWaiting    bool   `json:"badgeWaiting"`
 	BadgeActive     bool   `json:"badgeActive"`
+	ShowRateLimits  bool   `json:"showRateLimits"`
 	LastUpdateCheck string `json:"lastUpdateCheck,omitempty"`
 }
 
@@ -34,12 +35,15 @@ type App struct {
 	notifier     *monitor.Notifier
 	updater      *monitor.Updater
 	updateInfo   *monitor.UpdateInfo
+	rateLimits   *monitor.RateLimitReader
 	stop         chan struct{}
 	visible      bool
 	prevSessions []monitor.Session
 	settingsMu   sync.Mutex
 	settings     Settings
 	settingsPath string
+	claudeDir    string
+	vigilDir     string
 }
 
 func NewApp() *App {
@@ -52,8 +56,11 @@ func NewApp() *App {
 		manager:      monitor.NewManager(claudeDir),
 		history:      monitor.NewHistoryScanner(claudeDir),
 		notifier:     monitor.NewNotifier(),
+		rateLimits:   monitor.NewRateLimitReader(claudeDir, vigilDir),
 		stop:         make(chan struct{}),
 		settingsPath: filepath.Join(vigilDir, "settings.json"),
+		claudeDir:    claudeDir,
+		vigilDir:     vigilDir,
 	}
 	app.updater = monitor.NewUpdater(Version, "https://api.github.com/repos/avlihachev/vigil/releases/latest")
 	app.loadSettings()
@@ -111,6 +118,16 @@ func (a *App) emitSessions() {
 
 	a.prevSessions = sessions
 	runtime.EventsEmit(a.ctx, "sessions:updated", sessions)
+
+	a.settingsMu.Lock()
+	showRL := a.settings.ShowRateLimits
+	a.settingsMu.Unlock()
+	if showRL {
+		rl := a.rateLimits.Read()
+		runtime.EventsEmit(a.ctx, "ratelimits:updated", rl)
+	} else {
+		runtime.EventsEmit(a.ctx, "ratelimits:updated", nil)
+	}
 }
 
 func (a *App) GetSessions() []monitor.Session {
@@ -207,6 +224,25 @@ func (a *App) needsUpdateCheck() bool {
 
 func (a *App) OpenURL(url string) {
 	runtime.BrowserOpenURL(a.ctx, url)
+}
+
+func (a *App) GetRateLimits() *monitor.RateLimits {
+	return a.rateLimits.Read()
+}
+
+func (a *App) EnableRateLimits() error {
+	if err := monitor.InstallBridge(a.vigilDir); err != nil {
+		return err
+	}
+	return monitor.EnableStatusLine(a.claudeDir, a.vigilDir)
+}
+
+func (a *App) DisableRateLimits() {
+	monitor.DisableStatusLine(a.claudeDir)
+}
+
+func (a *App) IsBridgeInstalled() bool {
+	return monitor.IsBridgeInstalled(a.claudeDir, a.vigilDir)
 }
 
 func (a *App) GetSettings() Settings {

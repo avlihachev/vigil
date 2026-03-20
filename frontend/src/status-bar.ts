@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { Settings, UpdateInfo } from './types';
+import type { Settings, UpdateInfo, RateLimits, RateWindow } from './types';
 
 @customElement('status-bar')
 export class StatusBar extends LitElement {
@@ -9,8 +9,10 @@ export class StatusBar extends LitElement {
   @state() private settings: Settings = {
     notifyConfirm: true, notifyWaiting: false,
     badgeConfirm: true, badgeWaiting: true, badgeActive: false,
+    showRateLimits: false,
   };
   @state() private updateInfo: UpdateInfo | null = null;
+  @state() private rateLimits: RateLimits | null = null;
 
   static styles = css`
     :host {
@@ -117,6 +119,45 @@ export class StatusBar extends LitElement {
     .update-banner a:hover {
       text-decoration: underline;
     }
+    .rate-limits {
+      padding: 6px 12px 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      border-top: 1px solid var(--border, rgba(255,255,255,0.08));
+    }
+    .rate-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-secondary, #8b949e);
+    }
+    .rate-label {
+      width: 18px;
+      flex-shrink: 0;
+      font-weight: 500;
+      font-size: 10px;
+      color: var(--text-tertiary, #484f58);
+    }
+    .rate-track {
+      flex: 1;
+      height: 4px;
+      background: var(--border, rgba(255,255,255,0.08));
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .rate-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.3s ease, background 0.3s ease;
+    }
+    .rate-pct {
+      width: 28px;
+      text-align: right;
+      font-size: 10px;
+      font-variant-numeric: tabular-nums;
+    }
   `;
 
   connectedCallback() {
@@ -128,6 +169,10 @@ export class StatusBar extends LitElement {
     // @ts-ignore
     window.runtime?.EventsOn('update:available', (info: UpdateInfo) => {
       this.updateInfo = info;
+    });
+    // @ts-ignore
+    window.runtime?.EventsOn('ratelimits:updated', (rl: RateLimits | null) => {
+      this.rateLimits = rl;
     });
   }
 
@@ -141,6 +186,23 @@ export class StatusBar extends LitElement {
     window.go?.main?.App?.UpdateSettings(this.settings);
   }
 
+  private async _toggleRateLimits() {
+    const enabling = !this.settings.showRateLimits;
+    if (enabling) {
+      // @ts-ignore
+      const installed = await window.go?.main?.App?.IsBridgeInstalled();
+      if (!installed) {
+        // @ts-ignore
+        await window.go?.main?.App?.EnableRateLimits();
+      }
+    } else {
+      // @ts-ignore
+      await window.go?.main?.App?.DisableRateLimits();
+      this.rateLimits = null;
+    }
+    this._toggle('showRateLimits');
+  }
+
   private _openUpdate() {
     if (this.updateInfo) {
       // @ts-ignore
@@ -148,10 +210,38 @@ export class StatusBar extends LitElement {
     }
   }
 
+  private _barColor(pct: number): string {
+    if (pct >= 90) return '#f85149';
+    if (pct >= 75) return '#f08000';
+    if (pct >= 50) return '#e3b341';
+    return '#34d058';
+  }
+
+  private _renderBar(label: string, w: RateWindow) {
+    const pct = Math.min(100, Math.max(0, w.used_percentage));
+    const color = this._barColor(pct);
+    return html`
+      <div class="rate-row">
+        <span class="rate-label">${label}</span>
+        <div class="rate-track">
+          <div class="rate-fill" style="width:${pct}%; background:${color}"></div>
+        </div>
+        <span class="rate-pct">${pct}%</span>
+      </div>
+    `;
+  }
+
   render() {
     const label = this.count === 1 ? 'session' : 'sessions';
     const s = this.settings;
+    const rl = this.rateLimits;
     return html`
+      ${s.showRateLimits && rl?.dataAvailable ? html`
+        <div class="rate-limits">
+          ${rl.five_hour ? this._renderBar('5h', rl.five_hour) : ''}
+          ${rl.seven_day ? this._renderBar('7d', rl.seven_day) : ''}
+        </div>
+      ` : ''}
       <div class="bar">
         <span class="bar-label">${this.count} active ${label}</span>
         <span class="gear-wrap">
@@ -188,6 +278,11 @@ export class StatusBar extends LitElement {
           <label class="setting-row" @click=${() => this._toggle('badgeActive')}>
             <span class="toggle ${s.badgeActive ? 'on' : ''}"></span>
             Active sessions
+          </label>
+          <span class="section-label">Rate limits</span>
+          <label class="setting-row" @click=${() => this._toggleRateLimits()}>
+            <span class="toggle ${s.showRateLimits ? 'on' : ''}"></span>
+            Show usage
           </label>
         </div>
       ` : ''}
