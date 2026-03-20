@@ -10,12 +10,16 @@ const bridgeScript = `#!/bin/bash
 input=$(cat)
 new=$(echo "$input" | jq -c '.rate_limits // empty' 2>/dev/null)
 [ -z "$new" ] && exit 0
-old=$(cat ~/.vigil/rate-limits.json 2>/dev/null)
-echo "$old" | jq --argjson n "$new" '{
-  five_hour: (if ($n.five_hour.used_percentage // 0) >= (.five_hour.used_percentage // 0) then $n.five_hour else .five_hour end),
-  seven_day: (if ($n.seven_day.used_percentage // 0) >= (.seven_day.used_percentage // 0) then $n.seven_day else .seven_day end),
+f=~/.vigil/rate-limits.json
+if [ ! -f "$f" ]; then
+  echo "$new" | jq '{five_hour: .five_hour, seven_day: .seven_day, updated_at: (now | todate)}' > "$f"
+  exit 0
+fi
+jq --argjson n "$new" '{
+  five_hour: (if ($n.five_hour.resets_at // 0) >= (.five_hour.resets_at // 0) then $n.five_hour else .five_hour end),
+  seven_day: (if ($n.seven_day.resets_at // 0) >= (.seven_day.resets_at // 0) then $n.seven_day else .seven_day end),
   updated_at: (now | todate)
-}' > ~/.vigil/rate-limits.json.tmp 2>/dev/null && mv ~/.vigil/rate-limits.json.tmp ~/.vigil/rate-limits.json
+}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
 `
 
 func InstallBridge(vigilDir string) error {
