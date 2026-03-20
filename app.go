@@ -148,6 +148,9 @@ func (a *App) ToggleWindow() {
 }
 
 func (a *App) ShowWindow() {
+	a.rateLimits.Invalidate()
+	a.emitSessions()
+
 	screens, _ := runtime.ScreenGetAll(a.ctx)
 	if len(screens) > 0 {
 		primary := screens[0]

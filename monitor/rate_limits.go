@@ -55,6 +55,12 @@ func (r *RateLimitReader) Read() *RateLimits {
 	return rl
 }
 
+func (r *RateLimitReader) Invalidate() {
+	r.mu.Lock()
+	r.hasRead = false
+	r.mu.Unlock()
+}
+
 func (r *RateLimitReader) tryRead(path string) *RateLimits {
 	info, err := os.Stat(path)
 	if err != nil {
