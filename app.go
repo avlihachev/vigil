@@ -125,6 +125,8 @@ func (a *App) emitSessions() {
 	if showRL {
 		rl := a.rateLimits.Read()
 		runtime.EventsEmit(a.ctx, "ratelimits:updated", rl)
+	} else {
+		runtime.EventsEmit(a.ctx, "ratelimits:updated", nil)
 	}
 }
 

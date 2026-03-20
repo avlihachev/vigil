@@ -195,6 +195,10 @@ export class StatusBar extends LitElement {
         // @ts-ignore
         await window.go?.main?.App?.EnableRateLimits();
       }
+    } else {
+      // @ts-ignore
+      await window.go?.main?.App?.DisableRateLimits();
+      this.rateLimits = null;
     }
     this._toggle('showRateLimits');
   }

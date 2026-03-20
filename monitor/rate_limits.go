@@ -25,6 +25,7 @@ type RateLimitReader struct {
 	bridgePath string
 	cached     *RateLimits
 	lastRead   time.Time
+	hasRead    bool
 	mu         sync.Mutex
 }
 
@@ -39,7 +40,7 @@ func (r *RateLimitReader) Read() *RateLimits {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if time.Since(r.lastRead) < 10*time.Second && r.cached != nil {
+	if r.hasRead && time.Since(r.lastRead) < 10*time.Second {
 		return r.cached
 	}
 
@@ -50,6 +51,7 @@ func (r *RateLimitReader) Read() *RateLimits {
 
 	r.cached = rl
 	r.lastRead = time.Now()
+	r.hasRead = true
 	return rl
 }
 
