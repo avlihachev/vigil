@@ -39,12 +39,25 @@ export interface ProjectHistory {
   sessions: HistoricalSession[];
 }
 
+export interface RateWindow {
+  used_percentage: number;
+  resets_at: number;
+}
+
+export interface RateLimits {
+  five_hour?: RateWindow;
+  seven_day?: RateWindow;
+  updated_at: string;
+  dataAvailable: boolean;
+}
+
 export interface Settings {
   notifyConfirm: boolean;
   notifyWaiting: boolean;
   badgeConfirm: boolean;
   badgeWaiting: boolean;
   badgeActive: boolean;
+  showRateLimits: boolean;
 }
 
 export interface UpdateInfo {

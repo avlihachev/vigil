@@ -3,7 +3,13 @@
 import {monitor} from '../models';
 import {main} from '../models';
 
+export function DisableRateLimits():Promise<void>;
+
+export function EnableRateLimits():Promise<void>;
+
 export function GetHistory():Promise<Array<monitor.ProjectHistory>>;
+
+export function GetRateLimits():Promise<monitor.RateLimits>;
 
 export function GetSessions():Promise<Array<monitor.Session>>;
 
@@ -12,6 +18,8 @@ export function GetSettings():Promise<main.Settings>;
 export function GetVersion():Promise<string>;
 
 export function HideWindow():Promise<void>;
+
+export function IsBridgeInstalled():Promise<boolean>;
 
 export function OpenSession(arg1:string,arg2:string,arg3:number):Promise<void>;
 
