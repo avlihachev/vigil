@@ -9,8 +9,8 @@ import (
 )
 
 type RateWindow struct {
-	UsedPercentage int   `json:"used_percentage"`
-	ResetsAt       int64 `json:"resets_at"`
+	UsedPercentage float64 `json:"used_percentage"`
+	ResetsAt       int64   `json:"resets_at"`
 }
 
 type RateLimits struct {
@@ -22,7 +22,8 @@ type RateLimits struct {
 
 type RateLimitReader struct {
 	nativePath string
-	bridgePath string
+	bridgeDir  string
+	legacyPath string
 	cached     *RateLimits
 	lastRead   time.Time
 	hasRead    bool
@@ -32,7 +33,8 @@ type RateLimitReader struct {
 func NewRateLimitReader(claudeDir, vigilDir string) *RateLimitReader {
 	return &RateLimitReader{
 		nativePath: filepath.Join(claudeDir, "cache", "rate-limits.json"),
-		bridgePath: filepath.Join(vigilDir, "rate-limits.json"),
+		bridgeDir:  filepath.Join(vigilDir, "rate-limits"),
+		legacyPath: filepath.Join(vigilDir, "rate-limits.json"),
 	}
 }
 
@@ -46,7 +48,10 @@ func (r *RateLimitReader) Read() *RateLimits {
 
 	rl := r.tryRead(r.nativePath)
 	if rl == nil {
-		rl = r.tryRead(r.bridgePath)
+		rl = r.readFreshest()
+	}
+	if rl == nil {
+		rl = r.tryRead(r.legacyPath)
 	}
 
 	r.cached = rl
@@ -59,6 +64,73 @@ func (r *RateLimitReader) Invalidate() {
 	r.mu.Lock()
 	r.hasRead = false
 	r.mu.Unlock()
+}
+
+// newerWindow picks the better of two windows: newer resets_at wins, then higher percentage
+func newerWindow(a, b *RateWindow) *RateWindow {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	if b.ResetsAt > a.ResetsAt {
+		return b
+	}
+	if b.ResetsAt == a.ResetsAt && b.UsedPercentage > a.UsedPercentage {
+		return b
+	}
+	return a
+}
+
+func (r *RateLimitReader) readFreshest() *RateLimits {
+	entries, err := os.ReadDir(r.bridgeDir)
+	if err != nil {
+		return nil
+	}
+
+	var bestFive, bestSeven *RateWindow
+	var bestUpdated string
+	found := false
+	staleThreshold := time.Now().Add(-1 * time.Hour)
+
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		path := filepath.Join(r.bridgeDir, e.Name())
+
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(staleThreshold) {
+			os.Remove(path)
+			continue
+		}
+
+		rl := r.tryRead(path)
+		if rl == nil {
+			continue
+		}
+
+		bestFive = newerWindow(bestFive, rl.FiveHour)
+		bestSeven = newerWindow(bestSeven, rl.SevenDay)
+		if rl.UpdatedAt > bestUpdated {
+			bestUpdated = rl.UpdatedAt
+		}
+		found = true
+	}
+
+	if !found {
+		return nil
+	}
+	return &RateLimits{
+		FiveHour:  bestFive,
+		SevenDay:  bestSeven,
+		UpdatedAt: bestUpdated,
+		Available: true,
+	}
 }
 
 func (r *RateLimitReader) tryRead(path string) *RateLimits {

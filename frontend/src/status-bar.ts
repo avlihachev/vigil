@@ -218,7 +218,9 @@ export class StatusBar extends LitElement {
   }
 
   private _renderBar(label: string, w: RateWindow) {
-    const pct = Math.min(100, Math.max(0, w.used_percentage));
+    const now = Math.floor(Date.now() / 1000);
+    const expired = w.resets_at > 0 && w.resets_at < now;
+    const pct = expired ? 0 : Math.min(100, Math.max(0, w.used_percentage));
     const color = this._barColor(pct);
     return html`
       <div class="rate-row">

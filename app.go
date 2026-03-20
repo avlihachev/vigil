@@ -77,6 +77,9 @@ func (a *App) startup(ctx context.Context) {
 	if a.needsUpdateCheck() {
 		go a.checkForUpdate()
 	}
+	if monitor.IsBridgeInstalled(a.claudeDir, a.vigilDir) {
+		monitor.InstallBridge(a.vigilDir)
+	}
 
 	// hide window when it loses focus
 	runtime.EventsOn(a.ctx, "window:blur", func(optionalData ...interface{}) {

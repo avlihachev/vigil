@@ -8,24 +8,16 @@ import (
 
 const bridgeScript = `#!/bin/bash
 input=$(cat)
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $input" >> ~/.vigil/statusline.log
+sid=$(echo "$input" | jq -r '.session_id // empty' 2>/dev/null)
 new=$(echo "$input" | jq -c '.rate_limits // empty' 2>/dev/null)
-[ -z "$new" ] && exit 0
-f=~/.vigil/rate-limits.json
-if [ ! -f "$f" ]; then
-  echo "$new" | jq '{five_hour: .five_hour, seven_day: .seven_day, updated_at: (now | todate)}' > "$f"
-  exit 0
-fi
-jq --argjson n "$new" '{
-  five_hour: (
-    if ($n.five_hour.resets_at // 0) > (.five_hour.resets_at // 0) then $n.five_hour
-    elif ($n.five_hour.resets_at // 0) == (.five_hour.resets_at // 0) and ($n.five_hour.used_percentage // 0) >= (.five_hour.used_percentage // 0) then $n.five_hour
-    else .five_hour end),
-  seven_day: (
-    if ($n.seven_day.resets_at // 0) > (.seven_day.resets_at // 0) then $n.seven_day
-    elif ($n.seven_day.resets_at // 0) == (.seven_day.resets_at // 0) and ($n.seven_day.used_percentage // 0) >= (.seven_day.used_percentage // 0) then $n.seven_day
-    else .seven_day end),
+[ -z "$new" ] || [ -z "$sid" ] && exit 0
+mkdir -p ~/.vigil/rate-limits
+echo "$new" | jq '{
+  five_hour: (.five_hour | if . then {used_percentage: (.used_percentage | round), resets_at} else . end),
+  seven_day: (.seven_day | if . then {used_percentage: (.used_percentage | round), resets_at} else . end),
   updated_at: (now | todate)
-}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+}' > ~/.vigil/rate-limits/"$sid".json
 `
 
 func InstallBridge(vigilDir string) error {
