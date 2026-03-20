@@ -16,8 +16,14 @@ if [ ! -f "$f" ]; then
   exit 0
 fi
 jq --argjson n "$new" '{
-  five_hour: (if ($n.five_hour.resets_at // 0) >= (.five_hour.resets_at // 0) then $n.five_hour else .five_hour end),
-  seven_day: (if ($n.seven_day.resets_at // 0) >= (.seven_day.resets_at // 0) then $n.seven_day else .seven_day end),
+  five_hour: (
+    if ($n.five_hour.resets_at // 0) > (.five_hour.resets_at // 0) then $n.five_hour
+    elif ($n.five_hour.resets_at // 0) == (.five_hour.resets_at // 0) and ($n.five_hour.used_percentage // 0) >= (.five_hour.used_percentage // 0) then $n.five_hour
+    else .five_hour end),
+  seven_day: (
+    if ($n.seven_day.resets_at // 0) > (.seven_day.resets_at // 0) then $n.seven_day
+    elif ($n.seven_day.resets_at // 0) == (.seven_day.resets_at // 0) and ($n.seven_day.used_percentage // 0) >= (.seven_day.used_percentage // 0) then $n.seven_day
+    else .seven_day end),
   updated_at: (now | todate)
 }' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
 `
