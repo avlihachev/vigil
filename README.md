@@ -18,7 +18,9 @@ Vigil sits in your menubar and polls Claude Code's local data files every 3 seco
 
 **Menubar badge** — shows a count of sessions that need attention right on the tray icon.
 
-**Settings panel** — click the gear icon to toggle notifications and badge per status type.
+**Rate limits** — displays your Claude Code 5-hour and 7-day usage as progress bars in the status bar. Requires enabling the status line bridge in settings (hooks into Claude Code's `statusLine` config).
+
+**Settings panel** — click the gear icon to toggle notifications, badge, and rate limit display per status type.
 
 **Auto-update check** — checks GitHub Releases at startup and weekly. An orange dot on the gear icon indicates a new version is available.
 
