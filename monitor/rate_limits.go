@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -39,6 +40,10 @@ func NewRateLimitReader(claudeDir, vigilDir string) *RateLimitReader {
 }
 
 func (r *RateLimitReader) Read() *RateLimits {
+	return r.ReadForSessions(nil)
+}
+
+func (r *RateLimitReader) ReadForSessions(activeIDs []string) *RateLimits {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -47,6 +52,9 @@ func (r *RateLimitReader) Read() *RateLimits {
 	}
 
 	rl := r.tryRead(r.nativePath)
+	if rl == nil {
+		rl = r.readFreshestForSessions(activeIDs)
+	}
 	if rl == nil {
 		rl = r.readFreshest()
 	}
@@ -66,32 +74,67 @@ func (r *RateLimitReader) Invalidate() {
 	r.mu.Unlock()
 }
 
-// newerWindow picks the better of two windows: newer resets_at wins, then higher percentage
-func newerWindow(a, b *RateWindow) *RateWindow {
-	if a == nil {
-		return b
+// readFreshestForSessions returns rate limits from the most recently modified
+// per-session file matching one of the active session IDs.
+func (r *RateLimitReader) readFreshestForSessions(activeIDs []string) *RateLimits {
+	if len(activeIDs) == 0 {
+		return nil
 	}
-	if b == nil {
-		return a
+	active := make(map[string]bool, len(activeIDs))
+	for _, id := range activeIDs {
+		active[id] = true
 	}
-	if b.ResetsAt > a.ResetsAt {
-		return b
+
+	entries, err := os.ReadDir(r.bridgeDir)
+	if err != nil {
+		return nil
 	}
-	if b.ResetsAt == a.ResetsAt && b.UsedPercentage > a.UsedPercentage {
-		return b
+
+	var bestPath string
+	var bestMod time.Time
+	staleThreshold := time.Now().Add(-1 * time.Hour)
+
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		name := strings.TrimSuffix(e.Name(), ".json")
+		path := filepath.Join(r.bridgeDir, e.Name())
+
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(staleThreshold) {
+			os.Remove(path)
+			continue
+		}
+
+		if !active[name] {
+			continue
+		}
+
+		if bestPath == "" || info.ModTime().After(bestMod) {
+			bestPath = path
+			bestMod = info.ModTime()
+		}
 	}
-	return a
+
+	if bestPath == "" {
+		return nil
+	}
+	return r.tryRead(bestPath)
 }
 
+// readFreshest returns rate limits from the most recently modified per-session file.
 func (r *RateLimitReader) readFreshest() *RateLimits {
 	entries, err := os.ReadDir(r.bridgeDir)
 	if err != nil {
 		return nil
 	}
 
-	var bestFive, bestSeven *RateWindow
-	var bestUpdated string
-	found := false
+	var bestPath string
+	var bestMod time.Time
 	staleThreshold := time.Now().Add(-1 * time.Hour)
 
 	for _, e := range entries {
@@ -109,28 +152,16 @@ func (r *RateLimitReader) readFreshest() *RateLimits {
 			continue
 		}
 
-		rl := r.tryRead(path)
-		if rl == nil {
-			continue
+		if bestPath == "" || info.ModTime().After(bestMod) {
+			bestPath = path
+			bestMod = info.ModTime()
 		}
-
-		bestFive = newerWindow(bestFive, rl.FiveHour)
-		bestSeven = newerWindow(bestSeven, rl.SevenDay)
-		if rl.UpdatedAt > bestUpdated {
-			bestUpdated = rl.UpdatedAt
-		}
-		found = true
 	}
 
-	if !found {
+	if bestPath == "" {
 		return nil
 	}
-	return &RateLimits{
-		FiveHour:  bestFive,
-		SevenDay:  bestSeven,
-		UpdatedAt: bestUpdated,
-		Available: true,
-	}
+	return r.tryRead(bestPath)
 }
 
 func (r *RateLimitReader) tryRead(path string) *RateLimits {

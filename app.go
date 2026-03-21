@@ -126,7 +126,13 @@ func (a *App) emitSessions() {
 	showRL := a.settings.ShowRateLimits
 	a.settingsMu.Unlock()
 	if showRL {
-		rl := a.rateLimits.Read()
+		activeIDs := make([]string, 0, len(sessions))
+		for _, s := range sessions {
+			if s.SessionID != "" {
+				activeIDs = append(activeIDs, s.SessionID)
+			}
+		}
+		rl := a.rateLimits.ReadForSessions(activeIDs)
 		runtime.EventsEmit(a.ctx, "ratelimits:updated", rl)
 	} else {
 		runtime.EventsEmit(a.ctx, "ratelimits:updated", nil)
